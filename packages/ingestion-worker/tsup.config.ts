@@ -12,4 +12,6 @@ export default defineConfig({
   // Keep "node:" specifiers: tsup would otherwise rewrite node:sqlite to a bare
   // "sqlite" package import (node:sqlite has no unprefixed form).
   removeNodeProtocol: false,
+  // Copies public/dashboard.html next to the bundle (dist/dashboard.html).
+  publicDir: "public",
 });

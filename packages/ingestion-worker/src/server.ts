@@ -5,6 +5,7 @@ import { buildIncidentMessage } from "./buildMessage.js";
 import type { WorkerConfig } from "./config.js";
 import { FailureAggregator, selectRootTask } from "./dedupe.js";
 import type { DispatchResult, Dispatcher } from "./dispatcher.js";
+import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
 import { FeedbackStore } from "./feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "./incidentRef.js";
@@ -143,6 +144,12 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     const send = jsonSender(res);
     try {
       if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, pending: aggregator.pendingCount });
+      const path = new URL(req.url ?? "/", "http://localhost").pathname;
+      if (req.method === "GET" && (path === "/" || path === "/dashboard")) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": DASHBOARD_CSP, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" });
+        return void res.end(dashboardHtml());
+      }
+      if (req.method === "GET" && path === "/api/dashboard") return handleDashboardApi(req, send);
       if (req.url === "/v1/openclaw/report") return await handleReport(req, send);
       if (req.url !== "/v1/airflow/failure") return send(404, { error: "not found" });
       if (req.method !== "POST") return send(405, { error: "method not allowed" });
@@ -167,6 +174,15 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       return send(500, { error: "internal error" });
     }
   });
+
+  /** Data for the live dashboard. Internal listener only: it includes report text. */
+  function handleDashboardApi(req: IncomingMessage, send: ReturnType<typeof jsonSender>): void {
+    if (!store) return send(200, { enabled: false });
+    const days = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("days") ?? 30);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) return send(400, { error: "days must be an integer between 1 and 3650" });
+    const since = now() - days * 24 * 3600 * 1000;
+    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now() }));
+  }
 
   /** Report text captured by the report-capture OpenClaw plugin (signed like Airflow callbacks). */
   async function handleReport(req: IncomingMessage, send: ReturnType<typeof jsonSender>): Promise<void> {

@@ -65,6 +65,7 @@ make demo-dry    # full stack; prints the triage report in the terminal (no LINE
 make demo-up && make demo-trigger   # real run: report is pushed to LINE_TARGET_ID
 make demo-tunnel   # Phase 3: Cloudflare tunnel + LINE webhook for the feedback buttons
 make feedback-report               # review feedback for prompt tuning
+make demo-dashboard                # live dashboard at http://localhost:8090/dashboard
 make demo-logs / make demo-down
 ```
 
@@ -103,6 +104,7 @@ LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 
 - **Stable URL:** a quick-tunnel URL changes every time the tunnel restarts, so re-run `make demo-tunnel`. For a fixed hostname, create a named tunnel in Cloudflare Zero Trust with a public hostname pointing to `http://ingestion-worker:8091`, then set `CLOUDFLARE_TUNNEL_TOKEN` and `PUBLIC_WEBHOOK_BASE_URL` in `demo/.env`.
 - **Review:** `make feedback-report` (or `DAYS=7 make feedback-report`) shows votes and the helpful rate by prompt version (a hash of `AGENTS.md`), reasons, triage time (first failure callback → report delivered), and every 👎 / ⚠️ with its report text. Use it to tune `AGENTS.md`, then compare the next prompt version.
 - **Security:** only `/line/webhook` is reachable through the tunnel (a separate listener on port 8091). Requests must carry a valid `x-line-signature`; button data is HMAC-signed so votes can't be forged; LINE redeliveries are ignored. Voters are stored as salted hashes, never raw LINE user ids. Data lives in `demo/.state/feedback/feedback.db`.
+- **Dashboard:** `make demo-dashboard` opens http://localhost:8090/dashboard, a live view of the same data. It shows the pipeline funnel, helpful rate, triage times, votes by prompt version, reasons, and every incident with its timeline and report. It refreshes every 30 s. It is served only on the worker's internal port, never through the tunnel, because it shows report text. The page uses a strict Content-Security-Policy and renders report text as plain text.
 - **Votes:** one per person per incident; a later tap replaces the earlier one. Taps and replies use LINE's free reply API; each incident uses 2 pushes (report + card).
 
 ## Production notes

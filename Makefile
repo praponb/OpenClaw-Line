@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report
+.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard
 
 install:
 	npm install
@@ -66,6 +66,11 @@ demo-logs:
 # register https://<tunnel>/line/webhook as the LINE channel's webhook URL.
 demo-tunnel:
 	cd demo && ./tunnel.sh
+
+# Live dashboard (internal worker port, localhost only).
+demo-dashboard:
+	@echo "Dashboard: http://localhost:8090/dashboard"
+	@command -v open >/dev/null && open http://localhost:8090/dashboard || true
 
 # Feedback review for prompt tuning: make feedback-report [DAYS=30]
 feedback-report:
