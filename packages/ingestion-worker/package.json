@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw-line/ingestion-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Receives Airflow failure callbacks, deduplicates, sanitizes, and triggers OpenClaw investigations",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "@openclaw-line/shared": "0.1.0"
+  }
+}

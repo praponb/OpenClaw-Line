@@ -1,0 +1,89 @@
+# Local end-to-end demo: Airflow -> ingestion worker -> OpenClaw (investigator) -> LINE.
+# Use the Makefile targets (make demo-up / demo-trigger / demo-dry); they build
+# and stage the artifacts these services expect.
+name: openclaw-line-demo
+
+x-openclaw-env: &openclaw-env
+  OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+  OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN}
+  # Model: Moonshot Kimi K3 (international endpoint by default; use https://api.moonshot.cn/v1 for China)
+  OPENCLAW_MODEL: ${OPENCLAW_MODEL:-moonshot/kimi-k3}
+  MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
+  MOONSHOT_BASE_URL: ${MOONSHOT_BASE_URL:-https://api.moonshot.ai/v1}
+  LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-unset}
+  LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-unset}
+  # Read-only credentials for the investigator's tools
+  AIRFLOW_BASE_URL: http://airflow:8080
+  AIRFLOW_USERNAME: investigator
+  AIRFLOW_PASSWORD: ${AIRFLOW_VIEWER_PASSWORD}
+
+services:
+  airflow:
+    image: ${AIRFLOW_IMAGE:-apache/airflow:3.3.2}
+    command: standalone
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin,investigator:viewer"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
+      AIRFLOW__API__BASE_URL: http://localhost:8080
+      OPENCLAW_INGEST_URL: http://ingestion-worker:8080/v1/airflow/failure
+      OPENCLAW_WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      STRIPE_EVENTS_PATH: /opt/airflow/data/stripe_events.json
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags:ro
+      - ../airflow/plugins:/opt/airflow/plugins:ro
+      - ./fixtures:/opt/airflow/data:ro
+      - ./.state/airflow-auth:/opt/airflow/auth
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+
+  ingestion-worker:
+    build:
+      context: ..
+      dockerfile: demo/worker.Dockerfile
+    environment:
+      PORT: "8080"
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      DEDUPE_WINDOW_S: ${DEDUPE_WINDOW_S:-30}
+      AIRFLOW_BASE_URL: http://airflow:8080
+      AIRFLOW_API_VERSION: v2
+      AIRFLOW_USERNAME: investigator
+      AIRFLOW_PASSWORD: ${AIRFLOW_VIEWER_PASSWORD}
+      DRY_RUN: ${DRY_RUN:-0}
+      INCIDENT_DIR: /incidents
+      OPENCLAW_GATEWAY_URL: http://openclaw-gateway:18789
+      OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN}
+      # Kimi K3 always reasons at max effort on the direct Moonshot route; allow time.
+      OPENCLAW_TIMEOUT_S: ${OPENCLAW_TIMEOUT_S:-300}
+      LINE_TARGET_ID: ${LINE_TARGET_ID}
+    volumes:
+      - ./.state/incidents:/incidents
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      - airflow
+
+  # LINE + Moonshot plugins are installed into the image at build time.
+  # No state volume: every container start is clean (incidents are stateless anyway).
+  openclaw-gateway:
+    image: openclaw-line/gateway:local
+    build:
+      context: ..
+      dockerfile: demo/openclaw.Dockerfile
+    environment: *openclaw-env
+    volumes:
+      # Read-only evidence sources for the plugin tools
+      - ./.state/repo:/data/repo:ro
+      - ./dbt:/data/dbt:ro
+      # Dry-run incident messages written by the worker
+      - ./.state/incidents:/incidents:ro
+    ports:
+      # Loopback only: the gateway token is an operator credential. Host port defaults
+      # to 18790 so it does not clash with a locally installed OpenClaw gateway (18789).
+      - "127.0.0.1:${OPENCLAW_GATEWAY_HOST_PORT:-18790}:18789"

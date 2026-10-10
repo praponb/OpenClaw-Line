@@ -1,0 +1,120 @@
+// OpenClaw Gateway config for the Pipeline Incident Investigator.
+// Secrets come from the environment via ${VAR} substitution (see demo/.env.example).
+// Paths are the container paths used by demo/docker-compose.yml.
+{
+  gateway: {
+    mode: "local",
+    port: 18789,
+    // "lan" so the ingestion worker can reach the gateway over the compose network.
+    // Do not publish this port to the internet.
+    bind: "lan",
+    auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
+  },
+
+  // Webhook ingress used by the ingestion worker (POST /hooks/agent).
+  hooks: {
+    enabled: true,
+    token: "${OPENCLAW_HOOK_TOKEN}", // dedicated hook token, not the gateway token
+    path: "/hooks",
+    allowedAgentIds: ["pipeline-investigator"],
+    // Callers cannot choose session keys, so every incident runs in a fresh
+    // isolated session (spec §5 "Session Bleed").
+    allowRequestSessionKey: false,
+  },
+
+  // LINE is the only delivery channel. The investigator only pushes reports;
+  // it does not take inbound chat.
+  channels: {
+    line: {
+      channelAccessToken: "${LINE_CHANNEL_ACCESS_TOKEN}",
+      channelSecret: "${LINE_CHANNEL_SECRET}",
+      dmPolicy: "disabled",
+      groupPolicy: "disabled",
+    },
+  },
+
+  plugins: {
+    // All plugins, including pipeline-investigator, are installed into the image at
+    // build time (demo/openclaw.Dockerfile). Don't use plugins.load.paths for the
+    // investigator: agent runs skip tools from plugins without an install record.
+    entries: {
+      line: { enabled: true },
+      moonshot: { enabled: true },
+      "pipeline-investigator": {
+        enabled: true,
+        config: {
+          // Credentials (AIRFLOW_USERNAME/PASSWORD, GITHUB_TOKEN, GITLAB_TOKEN)
+          // are read from the environment only.
+          airflowBaseUrl: "${AIRFLOW_BASE_URL}",
+          airflowApiVersion: "v2",
+          gitProvider: "local", // github | gitlab | local
+          localRepoPath: "/data/repo", // mounted read-only
+          // githubRepo: "acme/data-pipelines",
+          // gitlabProject: "data/pipelines",
+          dbtManifestPath: "/data/dbt/manifest.json", // mounted read-only
+          lineageMapPath: "/data/dbt/lineage_map.json",
+        },
+      },
+    },
+  },
+
+  // Model provider: Moonshot Kimi K3 via the @openclaw/moonshot-provider plugin
+  // (installed into the gateway image at build time). The plugin supplies the model
+  // catalog; this block only sets the endpoint and key.
+  // MOONSHOT_BASE_URL: https://api.moonshot.ai/v1 (international) or https://api.moonshot.cn/v1 (China).
+  models: {
+    mode: "merge",
+    providers: {
+      moonshot: {
+        baseUrl: "${MOONSHOT_BASE_URL}",
+        apiKey: "${MOONSHOT_API_KEY}",
+        api: "openai-completions",
+      },
+    },
+  },
+
+  // The investigator only runs when an incident arrives on /hooks/agent.
+  // Disable every scheduled job (heartbeat monitor, memory dreaming, skill
+  // collection review) that doctor would otherwise create for the agent:
+  // they would call the model, and possibly LINE, with no incident.
+  cron: { enabled: false },
+  skills: { workshop: { autonomous: { mode: "off" } } },
+  memory: { search: { enabled: false } },
+
+  agents: {
+    // Explicit ownership: no default agent, so inbound chat never reaches the investigator.
+    ownership: "explicit",
+    defaults: { skipBootstrap: true, heartbeat: { every: "0m" } },
+    entries: {
+      "pipeline-investigator": {
+        name: "Pipeline Incident Investigator",
+        workspace: "/opt/openclaw/workspace-investigator",
+        model: { primary: "${OPENCLAW_MODEL}" }, // moonshot/kimi-k3
+        skills: [],
+        // Read-only enforcement at the platform level: the investigator only
+        // sees its three read-only plugin tools. Deny wins over allow.
+        // No `profile`: a profile is applied before `allow`, and none of them include
+        // plugin tools, so the run would end up with zero tools. `allow` alone is the
+        // complete tool list.
+        tools: {
+          allow: ["get_airflow_task_log", "get_git_file_diff", "get_downstream_impact"],
+          deny: [
+            "group:runtime",
+            "group:fs",
+            "group:web",
+            "group:memory",
+            "group:sessions",
+            "group:automation",
+            "group:messaging",
+            "group:ui",
+            "group:nodes",
+            "group:agents",
+            "group:media",
+            "gateway",
+            "cron",
+          ],
+        },
+      },
+    },
+  },
+}
