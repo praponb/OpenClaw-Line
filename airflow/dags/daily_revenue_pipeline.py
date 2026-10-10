@@ -23,7 +23,9 @@ default_args = {
 
 @dag(
     dag_id="daily_revenue_pipeline",
-    schedule="0 2 * * *",
+    # Manual only (`make demo-trigger`): every run fails on purpose and costs a
+    # model call plus a LINE message, so the demo never runs on a timer.
+    schedule=None,
     start_date=datetime(2026, 10, 1),
     catchup=False,
     default_args=default_args,
