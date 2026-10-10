@@ -1,0 +1,10 @@
+**/node_modules
+.git
+demo/.state/repo
+demo/.state/incidents
+demo/.state/airflow-auth
+**/__pycache__
+.env
+# ...except the staged plugin's runtime deps (typebox), which the gateway image needs.
+!demo/.state/plugin/pipeline-investigator/node_modules
+!demo/.state/plugin/pipeline-investigator/node_modules/**

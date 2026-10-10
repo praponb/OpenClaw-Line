@@ -1,0 +1,7 @@
+{
+  "extract_stripe_transactions": "source.analytics.stripe.transactions",
+  "daily_revenue_pipeline.extract_stripe_transactions": "source.analytics.stripe.transactions",
+  "stg_stripe_transactions": "model.analytics.stg_stripe_transactions",
+  "fct_daily_revenue": "model.analytics.fct_daily_revenue",
+  "finance_reconciliation": "model.analytics.finance_reconciliation"
+}

@@ -1,0 +1,104 @@
+{
+  "id": "pipeline-investigator",
+  "name": "Pipeline Incident Investigator",
+  "description": "Read-only tools for triaging failed data pipelines: Airflow task logs, git diffs, and dbt lineage.",
+  "version": "0.1.0",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "airflowBaseUrl": {
+        "type": "string",
+        "description": "Airflow webserver/API base URL. Env: AIRFLOW_BASE_URL."
+      },
+      "airflowApiVersion": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "v1"
+          },
+          {
+            "type": "string",
+            "const": "v2"
+          }
+        ],
+        "description": "v2 for Airflow 3, v1 for Airflow 2. Env: AIRFLOW_API_VERSION."
+      },
+      "gitProvider": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "github"
+          },
+          {
+            "type": "string",
+            "const": "gitlab"
+          },
+          {
+            "type": "string",
+            "const": "local"
+          }
+        ],
+        "description": "Env: GIT_PROVIDER."
+      },
+      "githubRepo": {
+        "type": "string",
+        "description": "owner/repo. Env: GITHUB_REPO."
+      },
+      "githubApiUrl": {
+        "type": "string",
+        "description": "Env: GITHUB_API_URL."
+      },
+      "gitlabProject": {
+        "type": "string",
+        "description": "Project id or url-encoded path. Env: GITLAB_PROJECT."
+      },
+      "gitlabApiUrl": {
+        "type": "string",
+        "description": "Env: GITLAB_API_URL."
+      },
+      "gitRef": {
+        "type": "string",
+        "description": "Branch to inspect. Env: GIT_REF."
+      },
+      "localRepoPath": {
+        "type": "string",
+        "description": "Read-only local clone for gitProvider=local. Env: LOCAL_REPO_PATH."
+      },
+      "dbtManifestPath": {
+        "type": "string",
+        "description": "Path to compiled dbt manifest.json. Env: DBT_MANIFEST_PATH."
+      },
+      "lineageMapPath": {
+        "type": "string",
+        "description": "Optional Airflow task -> dbt node map. Env: LINEAGE_MAP_PATH."
+      },
+      "maxLogChars": {
+        "type": "integer",
+        "minimum": 1000,
+        "description": "Env: MAX_LOG_CHARS."
+      }
+    },
+    "additionalProperties": false
+  },
+  "contracts": {
+    "tools": [
+      "get_airflow_task_log",
+      "get_git_file_diff",
+      "get_downstream_impact"
+    ]
+  },
+  "toolMetadata": {
+    "get_airflow_task_log": {
+      "optional": true
+    },
+    "get_git_file_diff": {
+      "optional": true
+    },
+    "get_downstream_impact": {
+      "optional": true
+    }
+  }
+}

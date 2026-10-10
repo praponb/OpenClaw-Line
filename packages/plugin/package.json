@@ -1,0 +1,32 @@
+{
+  "name": "@openclaw-line/plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw plugin: read-only pipeline incident investigation tools",
+  "type": "module",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "plugin:build": "npm run build && openclaw plugins build --entry ./dist/index.js",
+    "plugin:validate": "npm run build && openclaw plugins validate --entry ./dist/index.js"
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "devDependencies": {
+    "@openclaw-line/shared": "0.1.0",
+    "openclaw": "2026.9.9"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  }
+}

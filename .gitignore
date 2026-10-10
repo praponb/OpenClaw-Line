@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+demo/.state/
+demo/incidents/
+__pycache__/
+.pytest_cache/
+.venv/

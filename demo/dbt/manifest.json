@@ -1,0 +1,317 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.10.0",
+    "generated_at": "2026-10-09T23:00:00Z",
+    "project_name": "analytics"
+  },
+  "nodes": {
+    "model.analytics.stg_stripe_transactions": {
+      "unique_id": "model.analytics.stg_stripe_transactions",
+      "resource_type": "model",
+      "name": "stg_stripe_transactions",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "staging",
+      "alias": "stg_stripe_transactions",
+      "relation_name": "\"warehouse\".\"staging\".\"stg_stripe_transactions\"",
+      "tags": [],
+      "meta": {},
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {}
+      },
+      "original_file_path": "models/staging/stg_stripe_transactions.sql"
+    },
+    "model.analytics.stg_stripe_refunds": {
+      "unique_id": "model.analytics.stg_stripe_refunds",
+      "resource_type": "model",
+      "name": "stg_stripe_refunds",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "staging",
+      "alias": "stg_stripe_refunds",
+      "relation_name": "\"warehouse\".\"staging\".\"stg_stripe_refunds\"",
+      "tags": [],
+      "meta": {},
+      "config": {
+        "materialized": "view",
+        "tags": [],
+        "meta": {}
+      },
+      "original_file_path": "models/staging/stg_stripe_refunds.sql"
+    },
+    "model.analytics.fct_daily_revenue": {
+      "unique_id": "model.analytics.fct_daily_revenue",
+      "resource_type": "model",
+      "name": "fct_daily_revenue",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "analytics",
+      "alias": "fct_daily_revenue",
+      "relation_name": "\"warehouse\".\"analytics\".\"fct_daily_revenue\"",
+      "tags": [
+        "finance",
+        "critical"
+      ],
+      "meta": {
+        "sla": "06:00 UTC",
+        "owner": "finance-data"
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [
+          "finance",
+          "critical"
+        ],
+        "meta": {
+          "sla": "06:00 UTC",
+          "owner": "finance-data"
+        }
+      },
+      "original_file_path": "models/analytics/fct_daily_revenue.sql"
+    },
+    "model.analytics.finance_reconciliation": {
+      "unique_id": "model.analytics.finance_reconciliation",
+      "resource_type": "model",
+      "name": "finance_reconciliation",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "marts",
+      "alias": "finance_reconciliation",
+      "relation_name": "\"warehouse\".\"marts\".\"finance_reconciliation\"",
+      "tags": [
+        "finance"
+      ],
+      "meta": {
+        "criticality": "high",
+        "sla": "07:00 UTC"
+      },
+      "config": {
+        "materialized": "table",
+        "tags": [
+          "finance"
+        ],
+        "meta": {
+          "criticality": "high",
+          "sla": "07:00 UTC"
+        }
+      },
+      "original_file_path": "models/marts/finance_reconciliation.sql"
+    },
+    "model.analytics.dim_customers": {
+      "unique_id": "model.analytics.dim_customers",
+      "resource_type": "model",
+      "name": "dim_customers",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "analytics",
+      "alias": "dim_customers",
+      "relation_name": "\"warehouse\".\"analytics\".\"dim_customers\"",
+      "tags": [],
+      "meta": {},
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {}
+      },
+      "original_file_path": "models/analytics/dim_customers.sql"
+    },
+    "model.analytics.fct_orders": {
+      "unique_id": "model.analytics.fct_orders",
+      "resource_type": "model",
+      "name": "fct_orders",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "analytics",
+      "alias": "fct_orders",
+      "relation_name": "\"warehouse\".\"analytics\".\"fct_orders\"",
+      "tags": [],
+      "meta": {},
+      "config": {
+        "materialized": "table",
+        "tags": [],
+        "meta": {}
+      },
+      "original_file_path": "models/analytics/fct_orders.sql"
+    },
+    "test.analytics.not_null_stg_stripe_transactions_payment_intent_id": {
+      "unique_id": "test.analytics.not_null_stg_stripe_transactions_payment_intent_id",
+      "resource_type": "test",
+      "name": "not_null_stg_stripe_transactions_payment_intent_id",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "dbt_test__audit",
+      "tags": [],
+      "meta": {},
+      "config": {},
+      "depends_on": {
+        "nodes": [
+          "model.analytics.stg_stripe_transactions"
+        ]
+      }
+    },
+    "test.analytics.unique_fct_daily_revenue_revenue_date": {
+      "unique_id": "test.analytics.unique_fct_daily_revenue_revenue_date",
+      "resource_type": "test",
+      "name": "unique_fct_daily_revenue_revenue_date",
+      "package_name": "analytics",
+      "database": "warehouse",
+      "schema": "dbt_test__audit",
+      "tags": [],
+      "meta": {},
+      "config": {},
+      "depends_on": {
+        "nodes": [
+          "model.analytics.fct_daily_revenue"
+        ]
+      }
+    }
+  },
+  "sources": {
+    "source.analytics.stripe.transactions": {
+      "unique_id": "source.analytics.stripe.transactions",
+      "resource_type": "source",
+      "name": "transactions",
+      "source_name": "stripe",
+      "identifier": "stripe_transactions_raw",
+      "database": "warehouse",
+      "schema": "raw_stripe",
+      "relation_name": "\"warehouse\".\"raw_stripe\".\"stripe_transactions_raw\"",
+      "tags": [],
+      "meta": {},
+      "config": {}
+    }
+  },
+  "exposures": {
+    "exposure.analytics.executive_daily_kpi": {
+      "unique_id": "exposure.analytics.executive_daily_kpi",
+      "resource_type": "exposure",
+      "name": "executive_daily_kpi",
+      "label": "Executive Daily KPI (Looker)",
+      "type": "dashboard",
+      "maturity": "high",
+      "url": "https://looker.example.com/dashboards/42",
+      "owner": {
+        "name": "Finance BI",
+        "email": "finance-bi@example.com"
+      },
+      "tags": [
+        "critical"
+      ],
+      "meta": {
+        "sla": "07:30 UTC"
+      },
+      "depends_on": {
+        "nodes": [
+          "model.analytics.fct_daily_revenue"
+        ]
+      }
+    },
+    "exposure.analytics.daily_net_inflow_alert": {
+      "unique_id": "exposure.analytics.daily_net_inflow_alert",
+      "resource_type": "exposure",
+      "name": "daily_net_inflow_alert",
+      "label": "Daily Net Inflow Alert",
+      "type": "notebook",
+      "maturity": "medium",
+      "owner": {
+        "name": "Treasury Ops"
+      },
+      "tags": [],
+      "meta": {},
+      "depends_on": {
+        "nodes": [
+          "model.analytics.finance_reconciliation"
+        ]
+      }
+    },
+    "exposure.analytics.orders_dashboard": {
+      "unique_id": "exposure.analytics.orders_dashboard",
+      "resource_type": "exposure",
+      "name": "orders_dashboard",
+      "label": "Orders Dashboard",
+      "type": "dashboard",
+      "owner": {
+        "name": "Ops"
+      },
+      "tags": [],
+      "meta": {},
+      "depends_on": {
+        "nodes": [
+          "model.analytics.fct_orders"
+        ]
+      }
+    }
+  },
+  "metrics": {},
+  "macros": {},
+  "child_map": {
+    "source.analytics.stripe.transactions": [
+      "model.analytics.stg_stripe_transactions",
+      "model.analytics.stg_stripe_refunds"
+    ],
+    "model.analytics.stg_stripe_transactions": [
+      "model.analytics.fct_daily_revenue",
+      "test.analytics.not_null_stg_stripe_transactions_payment_intent_id"
+    ],
+    "model.analytics.stg_stripe_refunds": [
+      "model.analytics.fct_daily_revenue"
+    ],
+    "model.analytics.fct_daily_revenue": [
+      "model.analytics.finance_reconciliation",
+      "exposure.analytics.executive_daily_kpi",
+      "test.analytics.unique_fct_daily_revenue_revenue_date"
+    ],
+    "model.analytics.finance_reconciliation": [
+      "exposure.analytics.daily_net_inflow_alert"
+    ],
+    "model.analytics.dim_customers": [
+      "model.analytics.fct_orders"
+    ],
+    "model.analytics.fct_orders": [
+      "exposure.analytics.orders_dashboard"
+    ],
+    "exposure.analytics.executive_daily_kpi": [],
+    "exposure.analytics.daily_net_inflow_alert": [],
+    "exposure.analytics.orders_dashboard": [],
+    "test.analytics.not_null_stg_stripe_transactions_payment_intent_id": [],
+    "test.analytics.unique_fct_daily_revenue_revenue_date": []
+  },
+  "parent_map": {
+    "source.analytics.stripe.transactions": [],
+    "model.analytics.stg_stripe_transactions": [
+      "source.analytics.stripe.transactions"
+    ],
+    "model.analytics.stg_stripe_refunds": [
+      "source.analytics.stripe.transactions"
+    ],
+    "model.analytics.fct_daily_revenue": [
+      "model.analytics.stg_stripe_transactions",
+      "model.analytics.stg_stripe_refunds"
+    ],
+    "test.analytics.not_null_stg_stripe_transactions_payment_intent_id": [
+      "model.analytics.stg_stripe_transactions"
+    ],
+    "model.analytics.finance_reconciliation": [
+      "model.analytics.fct_daily_revenue"
+    ],
+    "exposure.analytics.executive_daily_kpi": [
+      "model.analytics.fct_daily_revenue"
+    ],
+    "test.analytics.unique_fct_daily_revenue_revenue_date": [
+      "model.analytics.fct_daily_revenue"
+    ],
+    "exposure.analytics.daily_net_inflow_alert": [
+      "model.analytics.finance_reconciliation"
+    ],
+    "model.analytics.dim_customers": [],
+    "model.analytics.fct_orders": [
+      "model.analytics.dim_customers"
+    ],
+    "exposure.analytics.orders_dashboard": [
+      "model.analytics.fct_orders"
+    ]
+  }
+}
