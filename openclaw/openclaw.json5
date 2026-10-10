@@ -88,6 +88,13 @@
   // collection review) that doctor would otherwise create for the agent:
   // they would call the model, and possibly LINE, with no incident.
   cron: { enabled: false },
+  // Expose the investigator's three tools directly, with their schemas.
+  // - Code Mode would replace them with a model-written JavaScript `exec`
+  //   (node:vm, "not a security boundary"); it auto-enables for preferred
+  //   models such as Kimi K3.
+  // - Tool Search (on by default) hides schemas behind tool_search/tool_call,
+  //   which costs extra calls and wrong-argument retries for 3 tools.
+  tools: { codeMode: false, toolSearch: false },
   skills: { workshop: { autonomous: { mode: "off" } } },
   memory: { search: { enabled: false } },
 
@@ -107,6 +114,7 @@
         // plugin tools, so the run would end up with zero tools. `allow` alone is the
         // complete tool list.
         tools: {
+          codeMode: false,
           allow: ["get_airflow_task_log", "get_git_file_diff", "get_downstream_impact"],
           deny: [
             "group:runtime",
