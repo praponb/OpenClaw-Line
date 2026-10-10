@@ -115,7 +115,7 @@ Needs only Docker with the Compose plugin; Node runs inside a container for the 
 3. Run `make demo-prepare-docker`, then `docker compose --env-file demo/.env -f demo/docker-compose.yml up -d --build`, then `make demo-tunnel`.
 4. Run the named tunnel on **one** machine only. Stop the old host's stack before starting the tunnel on the new one, otherwise Cloudflare splits LINE webhooks and dashboard traffic between them.
 
-All services use `restart: unless-stopped`, so the stack comes back after a reboot. Host ports bind to `127.0.0.1`; reach the Airflow UI and the local dashboard with `ssh -L 8080:localhost:8080 -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
+All services use `restart: unless-stopped`, so the stack comes back after a reboot. Airflow's history (metadata DB and task logs) lives in the `airflow-home` volume: `make demo-down` keeps it and `make demo-clean` deletes it. To open the Airflow login page from your network, set `AIRFLOW_BIND_ADDRESS` to the server's LAN IP and `AIRFLOW_PUBLIC_URL=http://<ip>:8080`, and use a strong `AIRFLOW_ADMIN_PASSWORD`. The other host ports bind to `127.0.0.1`; reach the local dashboard with `ssh -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
 
 ## Production notes
 - Set `gitProvider` to `github` or `gitlab` in `openclaw.json5`, and provide `GITHUB_TOKEN` or `GITLAB_TOKEN` through the environment.

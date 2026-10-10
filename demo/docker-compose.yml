@@ -32,17 +32,23 @@ services:
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin,investigator:viewer"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
-      AIRFLOW__API__BASE_URL: http://localhost:8080
+      # URL your browser uses for the Airflow UI (login redirects and log links).
+      AIRFLOW__API__BASE_URL: ${AIRFLOW_PUBLIC_URL:-http://localhost:8080}
       OPENCLAW_INGEST_URL: http://ingestion-worker:8080/v1/airflow/failure
       OPENCLAW_WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       STRIPE_EVENTS_PATH: /opt/airflow/data/stripe_events.json
     volumes:
+      # Airflow home (SQLite metadata DB, task logs, generated airflow.cfg) in a
+      # named volume so run history survives container recreation.
+      - airflow-home:/opt/airflow
       - ../airflow/dags:/opt/airflow/dags:ro
       - ../airflow/plugins:/opt/airflow/plugins:ro
       - ./fixtures:/opt/airflow/data:ro
       - ./.state/airflow-auth:/opt/airflow/auth
     ports:
-      - "127.0.0.1:${AIRFLOW_HOST_PORT:-8080}:8080"
+      # Loopback by default. On a server, set AIRFLOW_BIND_ADDRESS to its LAN IP
+      # (and AIRFLOW_PUBLIC_URL to match) to reach the login page from the network.
+      - "${AIRFLOW_BIND_ADDRESS:-127.0.0.1}:${AIRFLOW_HOST_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"]
       interval: 10s
@@ -140,3 +146,6 @@ services:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       - ingestion-worker
+
+volumes:
+  airflow-home:

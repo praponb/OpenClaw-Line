@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state
+.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean
 
 install:
 	npm install
@@ -88,5 +88,10 @@ demo-dashboard:
 feedback-report:
 	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
 
+# Stops and removes containers; keeps Airflow history (airflow-home volume) and demo/.state.
 demo-down:
+	$(COMPOSE) --profile tunnel --profile tunnel-quick down
+
+# Also deletes Airflow history (the airflow-home volume).
+demo-clean:
 	$(COMPOSE) --profile tunnel --profile tunnel-quick down -v
