@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-// Stage the built plugin as a self-contained package directory that OpenClaw
-// can load via `plugins.load.paths` (or `openclaw plugins install <dir>`):
-//   <out>/dist, openclaw.plugin.json, package.json (runtime deps only), node_modules/typebox
-// Usage: node scripts/stage-plugin.mjs <outDir>
+// Stage a built plugin package as a self-contained directory for
+// `openclaw plugins install <dir>`:
+//   <out>/dist, openclaw.plugin.json, package.json (runtime deps only), node_modules
+// Usage: node scripts/stage-plugin.mjs <outDir> [packageDir=packages/plugin]
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const src = join(root, "packages/plugin");
+const src = resolve(root, process.argv[3] ?? "packages/plugin");
 const out = resolve(process.argv[2] ?? join(root, "demo/.state/plugin/pipeline-investigator"));
 
 if (!existsSync(join(src, "dist/index.js"))) {
-  console.error("packages/plugin/dist/index.js missing - run `npm run build` first");
+  console.error(`${src}/dist/index.js missing - run \`npm run build\` first`);
   process.exit(1);
 }
 

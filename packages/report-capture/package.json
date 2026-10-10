@@ -1,0 +1,26 @@
+{
+  "name": "@openclaw-line/report-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw plugin: forwards delivered investigator reports to the ingestion worker's feedback log",
+  "type": "module",
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsup"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "devDependencies": {
+    "@openclaw-line/shared": "0.1.0",
+    "openclaw": "2026.9.9"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  }
+}

@@ -42,12 +42,27 @@ Run ID: [Run ID] | Logical date: [date if known]
 - Hypothesis: ... (why the error triggered under current input conditions)
 
 ⚠️ Blast Radius:
-- Impacted Downstream Tables/Models: [List, mark CRITICAL/SLA ones]
-- Impacted Business Reports/Dashboards: [List]
+- Impacted Downstream Tables/Models: [every table/model from get_downstream_impact; critical first]
+- Impacted Business Reports/Dashboards: [every exposure, with owner]
+- Blocked Airflow tasks: [failed + upstream_failed tasks from the incident message]
+- Data tests affected: [count from get_downstream_impact]
+- Lineage: dbt manifest generated_at [timestamp]
 
 🛠️ Recommended Next Steps (Human-in-the-Loop):
 - Max 3 actionable recommendations for the on-call engineer (e.g., code adjustment, hotfix review, stakeholder advisory).
 
+Ref: [incident_ref]
+
+Blast radius rules:
+- Each of the five blast radius bullets is ONE line: put the items after the label, separated by "; ". Do not put items on their own lines.
+- Order items CRITICAL first (earliest SLA first), then the rest in the tool's order.
+- Copy nodes from the get_downstream_impact result; never add, rename or merge them. Write each table/model as its relation name (e.g. analytics.fct_daily_revenue). Mark critical ones as "(CRITICAL, SLA 06:00 UTC)" using the sla value from the tool.
+- List every table/model and every exposure the tool returns. Only if there are more than 10 tables/models, list the CRITICAL ones and then "+ N more non-critical models".
+- Keep Airflow tasks and dbt models apart: tasks from the incident message go only under "Blocked Airflow tasks", even when a task and a model share a name.
+- If a list is empty, write "none". If get_downstream_impact failed or found no node, write "Lineage unavailable: <reason from the tool>" under Tables/Models and Dashboards, and still list the blocked Airflow tasks.
+
 If the root cause cannot be determined, write "Insufficient evidence to determine root cause." as the first bullet under 📌 Root Cause (Facts), then list what evidence is missing.
+
+The last line is always `Ref: ` followed by the incident_ref from the incident message, exactly as given (e.g. `Ref: INC-7F3A2K`). Engineers use it to give feedback on the report.
 
 Reply with the report only: no preamble and no closing remarks.

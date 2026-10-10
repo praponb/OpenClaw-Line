@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down
+.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report
 
 install:
 	npm install
@@ -24,7 +24,8 @@ validate-plugin: build
 	cd packages/plugin && npx openclaw plugins build --entry ./dist/index.js --check && npx openclaw plugins validate --entry ./dist/index.js
 
 stage-plugin: build
-	node scripts/stage-plugin.mjs $(STATE)/plugin/pipeline-investigator
+	node scripts/stage-plugin.mjs $(STATE)/plugin/pipeline-investigator packages/plugin
+	node scripts/stage-plugin.mjs $(STATE)/plugin/report-capture packages/report-capture
 
 seed:
 	python3 demo/seed_repo.py $(STATE)/repo
@@ -34,7 +35,7 @@ demo-env:
 
 # Airflow simple-auth-manager passwords: admin + read-only investigator (Viewer).
 demo-prepare: demo-env stage-plugin seed
-	@mkdir -p $(STATE)/incidents $(STATE)/airflow-auth
+	@mkdir -p $(STATE)/incidents $(STATE)/airflow-auth $(STATE)/feedback
 	@set -a; source demo/.env; set +a; \
 	  printf '{"admin": "%s", "investigator": "%s"}\n' "$$AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD" > $(STATE)/airflow-auth/passwords.json
 
@@ -61,5 +62,14 @@ demo-trigger:
 demo-logs:
 	$(COMPOSE) logs -f ingestion-worker openclaw-gateway
 
+# Phase 3: start a Cloudflare tunnel to the worker's LINE webhook listener and
+# register https://<tunnel>/line/webhook as the LINE channel's webhook URL.
+demo-tunnel:
+	cd demo && ./tunnel.sh
+
+# Feedback review for prompt tuning: make feedback-report [DAYS=30]
+feedback-report:
+	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
+
 demo-down:
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile tunnel --profile tunnel-quick down -v

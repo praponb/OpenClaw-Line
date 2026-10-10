@@ -55,6 +55,16 @@
           lineageMapPath: "/data/dbt/lineage_map.json",
         },
       },
+      // Phase 3: forwards each delivered report (matched by its "Ref: INC-…" line)
+      // to the worker's feedback log. Signed with WEBHOOK_SECRET from the env.
+      "report-capture": {
+        enabled: true,
+        config: {
+          workerUrl: "http://ingestion-worker:8080/v1/openclaw/report",
+          promptFile: "/opt/openclaw/workspace-investigator/AGENTS.md",
+          channel: "line",
+        },
+      },
     },
   },
 

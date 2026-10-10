@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { envBool, envInt, envOptional, envString, type Env } from "@openclaw-line/shared";
 
 export type WorkerConfig = {
@@ -19,6 +20,19 @@ export type WorkerConfig = {
     accountId?: string;
     model?: string;
     timeoutSeconds: number;
+  };
+  /** Phase 3: feedback card, LINE webhook and incident log. Off when LINE credentials are missing. */
+  feedback?: {
+    channelAccessToken: string;
+    channelSecret: string;
+    lineApiBaseUrl: string;
+    /** Public listener for POST /line/webhook (exposed through the Cloudflare tunnel). */
+    publicPort: number;
+    signingKey: string;
+    userSalt: string;
+    dbPath: string;
+    /** Recorded with each incident; the gateway's agent config decides the model actually used. */
+    modelLabel?: string;
   };
 };
 
@@ -52,5 +66,24 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
       model: envOptional(env, "OPENCLAW_MODEL"),
       timeoutSeconds: envInt(env, "OPENCLAW_TIMEOUT_S", 300),
     },
+    feedback: loadFeedbackConfig(env),
+  };
+}
+
+function loadFeedbackConfig(env: Env): WorkerConfig["feedback"] {
+  const token = envOptional(env, "LINE_CHANNEL_ACCESS_TOKEN");
+  const secret = envOptional(env, "LINE_CHANNEL_SECRET");
+  if (envBool(env, "FEEDBACK_DISABLED") || !token || !secret || token === "unset" || secret === "unset") return undefined;
+  // Default the feedback keys from WEBHOOK_SECRET so no extra secrets are required.
+  const derive = (label: string) => createHmac("sha256", envString(env, "WEBHOOK_SECRET")).update(label).digest("hex");
+  return {
+    channelAccessToken: token,
+    channelSecret: secret,
+    lineApiBaseUrl: envString(env, "LINE_API_BASE_URL", "https://api.line.me"),
+    publicPort: envInt(env, "PUBLIC_PORT", 8091),
+    signingKey: envOptional(env, "FEEDBACK_SIGNING_KEY") ?? derive("feedback-postback-signing"),
+    userSalt: envOptional(env, "FEEDBACK_USER_SALT") ?? derive("feedback-user-salt"),
+    dbPath: envString(env, "FEEDBACK_DB_PATH", "./data/feedback.db"),
+    modelLabel: envOptional(env, "OPENCLAW_MODEL_LABEL") ?? envOptional(env, "OPENCLAW_MODEL"),
   };
 }
