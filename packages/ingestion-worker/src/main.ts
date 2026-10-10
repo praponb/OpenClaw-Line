@@ -4,7 +4,7 @@ import { createWorker } from "./server.js";
 
 const cfg = loadConfig();
 const dispatcher = cfg.dryRun ? new FileDispatcher(cfg.incidentDir) : new HookDispatcher(cfg.openclaw);
-const { server, publicServer, aggregator, store } = createWorker(cfg, dispatcher);
+const { server, publicServer, dashboardServer, aggregator, store } = createWorker(cfg, dispatcher);
 
 server.listen(cfg.port, () => {
   console.info(
@@ -19,10 +19,19 @@ if (publicServer && cfg.feedback) {
   console.info("[worker] feedback disabled (LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET not set)");
 }
 
+if (dashboardServer && cfg.dashboard) {
+  dashboardServer.listen(cfg.dashboard.port, () => {
+    console.info(`[worker] public dashboard on :${cfg.dashboard!.port} (Cloudflare Access: ${cfg.dashboard!.access.teamDomain}, ${cfg.dashboard!.access.allowedEmails.length} allowed email(s))`);
+  });
+} else {
+  console.info("[worker] public dashboard disabled (set CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD and DASHBOARD_ALLOWED_EMAILS)");
+}
+
 const shutdown = async () => {
   console.info("[worker] shutting down; flushing pending incidents");
   server.close();
   publicServer?.close();
+  dashboardServer?.close();
   await aggregator.flushAll();
   store?.close();
   process.exit(0);

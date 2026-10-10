@@ -74,6 +74,12 @@ services:
       FEEDBACK_USER_SALT: ${FEEDBACK_USER_SALT:-}
       # Label only (stored per incident); not sent to the gateway as a model override.
       OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-moonshot/kimi-k3}
+      # Public dashboard (dashboard.<domain> via the named tunnel) behind Cloudflare
+      # Access. The listener only starts when all three CF/allow-list values are set.
+      DASHBOARD_PORT: "8092"
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      DASHBOARD_ALLOWED_EMAILS: ${DASHBOARD_ALLOWED_EMAILS:-}
     volumes:
       - ./.state/incidents:/incidents
       - ./.state/feedback:/data
