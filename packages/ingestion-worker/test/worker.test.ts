@@ -88,6 +88,7 @@ describe("ingestion worker end to end", () => {
     expect(dispatched).toHaveLength(1);
     const { incident, message } = dispatched[0]!;
     expect(incident.root.task_id).toBe("extract_stripe_transactions");
+    expect(incident.ref).toMatch(/^INC-[0-9A-Z]{6}$/);
     expect(incident.failedDescendants).toEqual(["validate_extract_counts"]);
     expect(incident.upstreamFailed).toEqual(["stg_stripe_transactions"]);
     expect(message).toContain("task_id (earliest failed task - root-cause this one): extract_stripe_transactions");
@@ -125,6 +126,7 @@ describe("verifySignature", () => {
 describe("HookDispatcher", () => {
   const incident: Incident = {
     key: "daily_revenue_pipeline:run1",
+    ref: "INC-TEST01",
     dagId: "daily_revenue_pipeline",
     runId: "run1",
     root: { dag_id: "daily_revenue_pipeline", task_id: "extract", run_id: "run1" },
@@ -134,10 +136,13 @@ describe("HookDispatcher", () => {
   };
 
   it("posts an isolated, LINE-delivered agent run with an idempotency key", async () => {
-    const fetchMock = vi.fn(async () => new Response('{"ok":true,"runId":"x"}', { status: 200 }));
+    const fetchMock = vi.fn(
+      async () => new Response('{"ok":true,"runId":"x","completion":{"status":"ok","replyDisposition":"visible","delivered":true,"deliveryAttempted":true}}', { status: 200 }),
+    );
     const d = new HookDispatcher(loadConfig(baseEnv).openclaw, { fetch: fetchMock as typeof fetch });
     const r = await d.dispatch(incident, "msg");
     expect(r.ok).toBe(true);
+    expect(r.completion).toEqual({ status: "ok", delivered: true, replyDisposition: "visible", deliveryError: undefined });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://gateway:18789/hooks/agent");
     const headers = init.headers as Record<string, string>;
@@ -151,6 +156,7 @@ describe("HookDispatcher", () => {
       deliver: true,
       channel: "line",
       to: "C0123456789abcdef0123456789abcdef",
+      waitForCompletion: true,
     });
     expect(body).not.toHaveProperty("sessionKey");
   });
@@ -172,6 +178,7 @@ describe("buildIncidentMessage", () => {
   it("sanitizes the callback exception and notes a missing log", () => {
     const msg = buildIncidentMessage({
       key: "k",
+      ref: "INC-TEST02",
       dagId: "d",
       runId: "r",
       root: { dag_id: "d", task_id: "t", run_id: "r", exception: "OperationalError: password=hunter2 for admin@corp.com" },
@@ -183,5 +190,7 @@ describe("buildIncidentMessage", () => {
     expect(msg).not.toContain("hunter2");
     expect(msg).not.toContain("admin@corp.com");
     expect(msg).toContain("LOG EXCERPT: unavailable (log fetch failed: Airflow API 404)");
+    expect(msg).toContain("incident_ref: INC-TEST02");
+    expect(msg.trimEnd().endsWith("End the report with this exact last line: Ref: INC-TEST02")).toBe(true);
   });
 });

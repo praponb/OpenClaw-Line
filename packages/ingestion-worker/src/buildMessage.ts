@@ -14,6 +14,7 @@ export function buildIncidentMessage(incident: Incident): string {
     "New data pipeline incident. Investigate it read-only and reply with the triage report in the required output schema.",
     "",
     "INCIDENT",
+    `incident_ref: ${incident.ref}`,
     `dag_id: ${r.dag_id}`,
     `task_id (earliest failed task - root-cause this one): ${r.task_id}`,
     `dag_run_id: ${r.run_id}`,
@@ -49,6 +50,8 @@ export function buildIncidentMessage(incident: Incident): string {
     "1. If the excerpt lacks the full traceback, call get_airflow_task_log.",
     "2. Call get_git_file_diff for the offending file(s) from the traceback (repository-relative paths).",
     `3. Call get_downstream_impact for the failed task/model (try "${r.task_id}").`,
+    "",
+    `End the report with this exact last line: Ref: ${incident.ref}`,
   );
   return lines.join("\n");
 }

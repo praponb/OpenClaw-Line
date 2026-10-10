@@ -1,0 +1,31 @@
+{
+  "id": "report-capture",
+  "name": "Investigator Report Capture",
+  "description": "Forwards delivered pipeline-investigator reports (matched by their 'Ref: INC-…' line) to the ingestion worker for the Phase 3 feedback log.",
+  "version": "0.1.0",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workerUrl": {
+        "type": "string",
+        "description": "Ingestion worker report endpoint, e.g. http://ingestion-worker:8080/v1/openclaw/report"
+      },
+      "promptFile": {
+        "type": "string",
+        "description": "Investigator AGENTS.md; its hash is recorded as the prompt version"
+      },
+      "channel": {
+        "type": "string",
+        "description": "Only capture messages sent on this channel",
+        "default": "line"
+      }
+    },
+    "required": [
+      "workerUrl"
+    ]
+  }
+}

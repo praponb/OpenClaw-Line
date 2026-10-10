@@ -16,6 +16,8 @@ x-openclaw-env: &openclaw-env
   AIRFLOW_BASE_URL: http://airflow:8080
   AIRFLOW_USERNAME: investigator
   AIRFLOW_PASSWORD: ${AIRFLOW_VIEWER_PASSWORD}
+  # report-capture plugin signs forwarded reports with the worker's shared secret
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET}
 
 services:
   airflow:
@@ -62,10 +64,23 @@ services:
       # Kimi K3 always reasons at max effort on the direct Moonshot route; allow time.
       OPENCLAW_TIMEOUT_S: ${OPENCLAW_TIMEOUT_S:-300}
       LINE_TARGET_ID: ${LINE_TARGET_ID}
+      # Phase 3 feedback: card + fallback pushes, LINE webhook, incident/feedback log.
+      # Feedback is off when the LINE credentials are missing ("unset").
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-unset}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-unset}
+      PUBLIC_PORT: "8091"
+      FEEDBACK_DB_PATH: /data/feedback.db
+      FEEDBACK_SIGNING_KEY: ${FEEDBACK_SIGNING_KEY:-}
+      FEEDBACK_USER_SALT: ${FEEDBACK_USER_SALT:-}
+      # Label only (stored per incident); not sent to the gateway as a model override.
+      OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-moonshot/kimi-k3}
     volumes:
       - ./.state/incidents:/incidents
+      - ./.state/feedback:/data
     ports:
       - "127.0.0.1:8090:8080"
+      # LINE webhook listener (only /line/webhook); published through the tunnel.
+      - "127.0.0.1:8091:8091"
     depends_on:
       - airflow
 
@@ -87,3 +102,27 @@ services:
       # Loopback only: the gateway token is an operator credential. Host port defaults
       # to 18790 so it does not clash with a locally installed OpenClaw gateway (18789).
       - "127.0.0.1:${OPENCLAW_GATEWAY_HOST_PORT:-18790}:18789"
+
+  # Phase 3: public HTTPS for the LINE webhook. The tunnel only reaches the
+  # worker's public listener (:8091), which serves nothing but /line/webhook.
+  # `make demo-tunnel` starts one of these and registers the URL with LINE.
+  #
+  # Quick tunnel (no Cloudflare account): a new *.trycloudflare.com URL per start.
+  tunnel-quick:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["tunnel-quick"]
+    command: tunnel --no-autoupdate --url http://ingestion-worker:8091
+    depends_on:
+      - ingestion-worker
+
+  # Named tunnel (stable hostname): create it in Cloudflare Zero Trust with a
+  # public hostname -> http://ingestion-worker:8091, then set
+  # CLOUDFLARE_TUNNEL_TOKEN and PUBLIC_WEBHOOK_BASE_URL in demo/.env.
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - ingestion-worker

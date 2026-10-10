@@ -48,6 +48,10 @@ Run ID: [Run ID] | Logical date: [date if known]
 🛠️ Recommended Next Steps (Human-in-the-Loop):
 - Max 3 actionable recommendations for the on-call engineer (e.g., code adjustment, hotfix review, stakeholder advisory).
 
+Ref: [incident_ref]
+
 If the root cause cannot be determined, write "Insufficient evidence to determine root cause." as the first bullet under 📌 Root Cause (Facts), then list what evidence is missing.
+
+The last line is always `Ref: ` followed by the incident_ref from the incident message, exactly as given (e.g. `Ref: INC-7F3A2K`). Engineers use it to give feedback on the report.
 
 Reply with the report only: no preamble and no closing remarks.

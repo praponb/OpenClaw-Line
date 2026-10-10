@@ -7,11 +7,15 @@ export type FailureEvent = {
   logical_date?: string;
   log_url?: string;
   exception?: string;
+  /** When the worker received the callback (ms epoch); set by the worker, not the payload. */
+  receivedAt?: number;
 };
 
 /** One deduplicated incident per (dag_id, run_id). */
 export type Incident = {
   key: string;
+  /** Short human-facing reference (INC-XXXXXX), shown in the report and feedback card. */
+  ref: string;
   dagId: string;
   runId: string;
   /** Earliest failed task: the only one we root-cause. */

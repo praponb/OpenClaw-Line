@@ -5,7 +5,7 @@ A read-only incident triage agent for data pipelines, built on [OpenClaw](https:
 - **Gathers evidence:** task logs, recent git diffs and dbt lineage.
 - **Posts a report to LINE:** facts are kept separate from hypotheses, the blast radius is listed, and there are at most 3 next steps.
 
-It never retries, fixes or changes anything. This implements roadmap Phases 1 and 2 of `spec.docx`, plus all §5 guardrails.
+It never retries, fixes or changes anything. This implements roadmap Phases 1 and 2 of `spec.docx`, plus all §5 guardrails, and the Phase 3 feedback buttons (👍 / 👎 / "Misleading") with a feedback log for prompt tuning.
 
 ```
 Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST /hooks/agent──▶ OpenClaw Gateway
@@ -22,12 +22,13 @@ Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST
 |---|---|
 | `packages/shared` | Sanitizer (secrets/PII), log pre-filter, read-only Airflow REST client (v1/v2) |
 | `packages/plugin` | OpenClaw tool plugin (`defineToolPlugin`) with `get_airflow_task_log`, `get_git_file_diff` and `get_downstream_impact` |
-| `packages/ingestion-worker` | Receives callbacks, verifies HMAC, dedupes per `(dag_id, run_id)`, picks the earliest failed task, pre-filters and sanitizes the log, then triggers `/hooks/agent` |
+| `packages/ingestion-worker` | Receives callbacks, verifies HMAC, dedupes per `(dag_id, run_id)`, picks the earliest failed task, pre-filters and sanitizes the log, then triggers `/hooks/agent`. Phase 3: sends the feedback card or a fallback notice, serves the LINE webhook, keeps the incident/feedback log (SQLite) |
+| `packages/report-capture` | OpenClaw hook plugin: forwards each delivered report (matched by its `Ref: INC-…` line) to the worker's feedback log |
 | `openclaw/openclaw.json5` | Gateway config: hooks, LINE channel, plugin, and the investigator agent with its tool policy |
 | `openclaw/workspace-investigator/AGENTS.md` | System prompt and output schema (spec §3, adapted for LINE plain text) |
 | `airflow/plugins/openclaw_callback.py` | `notify_openclaw`, the `on_failure_callback` (stdlib only, never raises) |
 | `airflow/dags/` | Demo DAG `daily_revenue_pipeline`, which reproduces the spec's Stripe `KeyError` |
-| `demo/` | docker-compose stack, dbt manifest fixture, git-history seeder, dry-run script |
+| `demo/` | docker-compose stack (incl. Cloudflare tunnel), dbt manifest fixture, git-history seeder, dry-run and tunnel scripts |
 
 ## Read-only enforcement
 
@@ -62,6 +63,8 @@ pip install pytest && make test-py
 make demo-env    # creates demo/.env – fill in MOONSHOT_API_KEY (+ LINE_* for delivery)
 make demo-dry    # full stack; prints the triage report in the terminal (no LINE needed)
 make demo-up && make demo-trigger   # real run: report is pushed to LINE_TARGET_ID
+make demo-tunnel   # Phase 3: Cloudflare tunnel + LINE webhook for the feedback buttons
+make feedback-report               # review feedback for prompt tuning
 make demo-logs / make demo-down
 ```
 
@@ -83,7 +86,24 @@ What happens in the demo:
 ### LINE setup
 1. In the LINE Developers Console, create a Messaging API channel. Copy its channel access token and channel secret into `demo/.env`.
 2. Add the bot to your on-call group and put the group id (`C` followed by 32 hex characters) in `LINE_TARGET_ID`.
-3. The investigator only *pushes* messages. Inbound DMs and group chat are disabled (`dmPolicy`/`groupPolicy: "disabled"`), so you don't need a public webhook URL.
+3. The investigator only *pushes* messages. Inbound DMs and group chat are disabled in OpenClaw (`dmPolicy`/`groupPolicy: "disabled"`). The channel's webhook goes to the ingestion worker instead, for the feedback buttons (below).
+
+### Feedback buttons (Phase 3)
+After each delivered report, the worker pushes a card asking "Was this triage helpful?" with 👍 Helpful / 👎 Not helpful / ⚠️ Misleading buttons. A 👎 or ⚠️ tap gets quick-reply reasons (Wrong root cause, Missed blast radius, Made-up fact, Not actionable). If the run fails or the report can't be delivered, the worker pushes a short fallback notice with the Airflow link instead.
+
+```
+Airflow ─▶ worker ─/hooks/agent (waitForCompletion)─▶ OpenClaw ─push report─▶ LINE group
+             │  ◀── {status, delivered} ────────────────┘   │ report-capture plugin
+             │  ◀── report text (signed) ────────────────────┘
+             ├─ push feedback card / fallback ─────────────────────────────────▶ LINE group
+LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 (verify, record, reply)
+```
+
+- **Setup:** `make demo-up`, then `make demo-tunnel`. This starts a Cloudflare quick tunnel (no account needed) and registers `https://<random>.trycloudflare.com/line/webhook` as the channel's webhook URL through the LINE API. "Use webhook" must be on in the LINE Developers Console (Messaging API tab); the script tells you if it is off.
+- **Stable URL:** a quick-tunnel URL changes every time the tunnel restarts, so re-run `make demo-tunnel`. For a fixed hostname, create a named tunnel in Cloudflare Zero Trust with a public hostname pointing to `http://ingestion-worker:8091`, then set `CLOUDFLARE_TUNNEL_TOKEN` and `PUBLIC_WEBHOOK_BASE_URL` in `demo/.env`.
+- **Review:** `make feedback-report` (or `DAYS=7 make feedback-report`) shows votes and the helpful rate by prompt version (a hash of `AGENTS.md`), reasons, triage time (first failure callback → report delivered), and every 👎 / ⚠️ with its report text. Use it to tune `AGENTS.md`, then compare the next prompt version.
+- **Security:** only `/line/webhook` is reachable through the tunnel (a separate listener on port 8091). Requests must carry a valid `x-line-signature`; button data is HMAC-signed so votes can't be forged; LINE redeliveries are ignored. Voters are stored as salted hashes, never raw LINE user ids. Data lives in `demo/.state/feedback/feedback.db`.
+- **Votes:** one per person per incident; a later tap replaces the earlier one. Taps and replies use LINE's free reply API; each incident uses 2 pushes (report + card).
 
 ## Production notes
 - Set `gitProvider` to `github` or `gitlab` in `openclaw.json5`, and provide `GITHUB_TOKEN` or `GITLAB_TOKEN` through the environment.
@@ -92,3 +112,5 @@ What happens in the demo:
 - Install the investigator plugin with `openclaw plugins install <staged dir> --force` (stage it with `node scripts/stage-plugin.mjs <dir>`), as the demo image does. Non-interactive installs also need `--accept-capabilities`.
 - Don't set `tools.profile` on the investigator agent. Profiles are applied before `allow` and none of them include plugin tools, so runs fail with "No callable tools remain…".
 - Keep the Gateway port private. Its token is an operator credential.
+- Publish only the worker's public listener (`PUBLIC_PORT`, `/line/webhook`) through a named Cloudflare tunnel or your ingress. Keep the internal port (Airflow callbacks, report capture) private.
+- The feedback log is a single-writer SQLite file: run one worker replica and back up `FEEDBACK_DB_PATH`.
