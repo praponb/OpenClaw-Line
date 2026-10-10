@@ -22,6 +22,10 @@ x-openclaw-env: &openclaw-env
 services:
   airflow:
     image: ${AIRFLOW_IMAGE:-apache/airflow:3.3.2}
+    restart: unless-stopped
+    # Linux hosts: set AIRFLOW_UID to your uid (id -u) so Airflow can write the
+    # bind-mounted passwords file; the image supports any uid with gid 0.
+    user: "${AIRFLOW_UID:-50000}:0"
     command: standalone
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -38,7 +42,7 @@ services:
       - ./fixtures:/opt/airflow/data:ro
       - ./.state/airflow-auth:/opt/airflow/auth
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${AIRFLOW_HOST_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"]
       interval: 10s
@@ -46,6 +50,7 @@ services:
       start_period: 30s
 
   ingestion-worker:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: demo/worker.Dockerfile
@@ -84,9 +89,9 @@ services:
       - ./.state/incidents:/incidents
       - ./.state/feedback:/data
     ports:
-      - "127.0.0.1:8090:8080"
+      - "127.0.0.1:${WORKER_HOST_PORT:-8090}:8080"
       # LINE webhook listener (only /line/webhook); published through the tunnel.
-      - "127.0.0.1:8091:8091"
+      - "127.0.0.1:${WEBHOOK_HOST_PORT:-8091}:8091"
     depends_on:
       - airflow
 
@@ -94,6 +99,7 @@ services:
   # No state volume: every container start is clean (incidents are stateless anyway).
   openclaw-gateway:
     image: openclaw-line/gateway:local
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: demo/openclaw.Dockerfile
@@ -116,6 +122,7 @@ services:
   # Quick tunnel (no Cloudflare account): a new *.trycloudflare.com URL per start.
   tunnel-quick:
     image: cloudflare/cloudflared:2026.10.0
+    restart: unless-stopped
     profiles: ["tunnel-quick"]
     command: tunnel --no-autoupdate --url http://ingestion-worker:8091
     depends_on:
@@ -126,6 +133,7 @@ services:
   # CLOUDFLARE_TUNNEL_TOKEN and PUBLIC_WEBHOOK_BASE_URL in demo/.env.
   tunnel:
     image: cloudflare/cloudflared:2026.10.0
+    restart: unless-stopped
     profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:

@@ -108,6 +108,15 @@ LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 
 - **Dashboard on your own domain:** publish it as e.g. `dashboard.<domain>` through the named tunnel (service `http://ingestion-worker:8092`), protected by a Cloudflare Access application that allows only your email. The worker checks every request on port 8092 as well: the Access token's signature (against your team's published keys), audience, issuer and expiry, and that its email is in `DASHBOARD_ALLOWED_EMAILS`. Port 8092 serves only the dashboard, never the internal endpoints, and doesn't start unless `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` and `DASHBOARD_ALLOWED_EMAILS` are all set.
 - **Votes:** one per person per incident; a later tap replaces the earlier one. Taps and replies use LINE's free reply API; each incident uses 2 pushes (report + card).
 
+## Deploy to a Linux server
+Needs only Docker with the Compose plugin; Node runs inside a container for the build.
+1. Copy the repo and `demo/.env` to the server, for example with `rsync -az --exclude node_modules --exclude 'packages/*/dist' --exclude demo/.state ./ user@server:OpenClaw-Line/`. On later syncs also exclude `demo/.env`, which holds server-only settings.
+2. In the server's `demo/.env`, set `AIRFLOW_UID=$(id -u)`. Override `AIRFLOW_HOST_PORT`, `WORKER_HOST_PORT` or `WEBHOOK_HOST_PORT` if those ports are taken.
+3. Run `make demo-prepare-docker`, then `docker compose --env-file demo/.env -f demo/docker-compose.yml up -d --build`, then `make demo-tunnel`.
+4. Run the named tunnel on **one** machine only. Stop the old host's stack before starting the tunnel on the new one, otherwise Cloudflare splits LINE webhooks and dashboard traffic between them.
+
+All services use `restart: unless-stopped`, so the stack comes back after a reboot. Host ports bind to `127.0.0.1`; reach the Airflow UI and the local dashboard with `ssh -L 8080:localhost:8080 -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
+
 ## Production notes
 - Set `gitProvider` to `github` or `gitlab` in `openclaw.json5`, and provide `GITHUB_TOKEN` or `GITLAB_TOKEN` through the environment.
 - Mount the production `manifest.json` from your dbt runs. Use `lineage_map.json` to map Airflow task ids to dbt nodes when the names differ.
