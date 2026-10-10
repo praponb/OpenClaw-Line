@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { REASONS, decodePostback, encodePostback, fallbackMessage, feedbackCard, reasonPrompt } from "../src/feedback.js";
-import { renderFeedbackReport } from "../src/feedbackReport.js";
+import { quantile, renderFeedbackReport } from "../src/feedbackReport.js";
 import { FeedbackStore, voterId } from "../src/feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "../src/incidentRef.js";
 import { verifyLineSignature } from "../src/line.js";
@@ -76,6 +76,16 @@ describe("verifyLineSignature", () => {
     expect(verifyLineSignature("other", body, sig)).toBe(false);
     expect(verifyLineSignature("chan-secret", Buffer.from('{"events":[1]}'), sig)).toBe(false);
     expect(verifyLineSignature("chan-secret", body, undefined)).toBe(false);
+  });
+});
+
+describe("quantile", () => {
+  it("averages the middle two values for an even count", () => {
+    expect(quantile([65_000, 75_000], 0.5)).toBe(70_000);
+    expect(quantile([10, 20, 30], 0.5)).toBe(20);
+    expect(quantile([65_000, 75_000], 0.9)).toBe(74_000);
+    expect(quantile([42], 0.9)).toBe(42);
+    expect(quantile([], 0.5)).toBeUndefined();
   });
 });
 

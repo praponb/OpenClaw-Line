@@ -17,7 +17,7 @@ export function renderFeedbackReport(incidents: IncidentRow[], feedback: Feedbac
     .sort((a, b) => a - b);
   out.push(
     `Incidents: ${incidents.length} (report delivered: ${delivered.length}, failed or undelivered: ${incidents.filter((i) => i.completed_at && i.delivered !== 1).length})`,
-    `Triage time, failure -> report (median / p90): ${fmtDuration(pct(triage, 0.5))} / ${fmtDuration(pct(triage, 0.9))}`,
+    `Triage time, failure -> report (median / p90): ${fmtDuration(quantile(triage, 0.5))} / ${fmtDuration(quantile(triage, 0.9))}`,
     `Incidents with feedback: ${new Set(feedback.map((f) => f.ref)).size}`,
     "",
     "By prompt version:",
@@ -62,9 +62,13 @@ export function renderFeedbackReport(incidents: IncidentRow[], feedback: Feedbac
   return out.join("\n");
 }
 
-function pct(sorted: number[], p: number): number | undefined {
+/** Linear-interpolation quantile of an ascending list (the median of an even count is the mean of the middle two). */
+export function quantile(sorted: number[], p: number): number | undefined {
   if (!sorted.length) return undefined;
-  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+  const pos = (sorted.length - 1) * p;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo);
 }
 
 function fmtDuration(ms: number | undefined): string {
