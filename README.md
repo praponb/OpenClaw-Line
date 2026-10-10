@@ -110,6 +110,7 @@ LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 
 - Mount the production `manifest.json` from your dbt runs. Use `lineage_map.json` to map Airflow task ids to dbt nodes when the names differ.
 - Outside docker, install the provider and channel with `openclaw plugins install @openclaw/moonshot-provider` and `openclaw plugins install @openclaw/line`.
 - Install the investigator plugin with `openclaw plugins install <staged dir> --force` (stage it with `node scripts/stage-plugin.mjs <dir>`), as the demo image does. Non-interactive installs also need `--accept-capabilities`.
+- Keep `tools.codeMode: false` and `tools.toolSearch: false`. Code Mode auto-enables for preferred models such as Kimi K3 and replaces the tools with a model-written JavaScript `exec` running in `node:vm`, which is not a security boundary. Tool Search hides the tool schemas behind a generic `tool_call`. After each OpenClaw upgrade, check that a run still calls the 3 tools directly.
 - Don't set `tools.profile` on the investigator agent. Profiles are applied before `allow` and none of them include plugin tools, so runs fail with "No callable tools remain…".
 - Keep the Gateway port private. Its token is an operator credential.
 - Publish only the worker's public listener (`PUBLIC_PORT`, `/line/webhook`) through a named Cloudflare tunnel or your ingress. Keep the internal port (Airflow callbacks, report capture) private.
