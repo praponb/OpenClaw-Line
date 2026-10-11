@@ -14,7 +14,7 @@ This is an engineering review, not legal advice. Use it as input for a Thai PDPA
 | 2 | ~~**Pipeline error messages carry data values.**~~ ✅ Fixed 2026-10-11: silver now reports field names and counts only. Previously: Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
 | 3 | **Evidence sent to the model provider leaves Thailand and may be used for training.** Sanitized logs, errors, diffs and table names go to Moonshot's international API (`api.moonshot.ai`), operated by Moonshot AI Pte. Ltd. with servers in **Singapore**. Its terms allow using customer content to improve the service, including training, unless agreed otherwise in writing (enterprise arrangement). Data is kept while the account is active. | **High for real data** |
 | 4 | **The sanitizer misses some Thai personal data.** Thai national IDs and phone numbers are masked since 2026-10-11; names, addresses and bank account numbers still aren't. | Medium (was: no Thai identifiers at all) |
-| 5 | ~~**Nothing is ever deleted.**~~ ✅ Retention set 2026-10-11: report text 180 days, Airflow logs 30 days and metadata 90 days, landing files 90 days, Delta `VACUUM` 7 days. | Done |
+| 5 | ~~**Nothing is ever deleted.**~~ ✅ Retention set 2026-10-11: report text 180 days, Airflow logs 30 days (metadata 90 days via `make airflow-db-clean`), landing files 90 days, Delta `VACUUM` 7 days. | Done |
 | 6 | **Credentials are well scoped**: all least-privilege and read-only except the two "write" accounts (Airflow runner, dashboard trigger), which can only start runs. ✅ The old `.env` and database backups were deleted on 2026-10-11. | Low |
 
 Today the pipeline only handles **synthetic** Stripe-style events (`databricks/src/stripe_events.py`), so nothing here is personal data yet. The findings matter **before real production data is connected**.
@@ -51,7 +51,7 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 | Store | Content | Retention |
 |---|---|---|
 | `demo/.state/feedback/feedback.db` (SQLite) | Incidents (ids, timestamps, full report text, prompt version, resolution), feedback (hashed voter, rating, reason), model token usage. | Report text removed after `REPORT_RETENTION_DAYS` (default 180); timings, votes, resolution and cost stay. `line_events` pruned after 7 days ✅. |
-| Airflow volume `openclaw-line-demo_airflow-home` | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG, daily 03:00 Bangkok: task logs after 30 days, metadata after 90 days (`airflow db clean`) ✅. |
+| Airflow volume `openclaw-line-demo_airflow-home` | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG, daily 03:00 Bangkok: task logs after 30 days ✅. Metadata after 90 days with `make airflow-db-clean` (by hand or cron; Airflow 3 tasks can't reach the metadata DB). |
 | `demo/.env` | All secrets (Moonshot key, LINE token, Databricks OAuth secrets, GitHub token, Airflow passwords, Cloudflare tunnel token). | Mode 600 ✅; old backups deleted 2026-10-11 ✅. |
 | `demo/.state/incidents` | Dry-run incident messages (only written in `DRY_RUN` mode). | Until deleted. |
 
@@ -96,7 +96,7 @@ In order. Items 1–4 should happen before real production data is connected.
    - Synthetic data is fine as is. For real data, ask Moonshot for a written training opt-out and DPA, or change `OPENCLAW_MODEL` (one line) to a provider with no-training and regional terms.
 5. ✅ **Retention periods**, set 2026-10-11:
    - worker: report text after `REPORT_RETENTION_DAYS` (180)
-   - Airflow `housekeeping` DAG: logs after 30 days, metadata after 90
+   - Airflow `housekeeping` DAG: logs after 30 days; metadata after 90 days with `make airflow-db-clean`
    - the job's `housekeeping` task: landing date folders after `landing_retention_days` (90), plus `VACUUM` (7 days) on bronze, silver and gold
 6. ✅ **Old secret and database backups deleted** on the server (2026-10-11).
 7. **When moving to a team:** send reports to a LINE group with known members (the target is currently a personal chat), and add those people's emails to the Cloudflare Access policy and `DASHBOARD_ALLOWED_EMAILS`.
