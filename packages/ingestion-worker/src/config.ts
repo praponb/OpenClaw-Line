@@ -46,6 +46,8 @@ export type WorkerConfig = {
   pipelineTrigger?: TriggerConfig;
   /** Model prices in USD per million tokens, for the cost estimate; null = not configured (tokens only). */
   modelPrices: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
+  /** Retention: days to keep incident report text (0 = keep forever). */
+  reportRetentionDays: number;
   /** MTTR: how often to check Airflow for a later successful run of open incidents (seconds; 0 = off). */
   resolutionPollSeconds: number;
   /** "Test LINE" button: max test pushes per Bangkok day (each uses LINE push quota). */
@@ -89,6 +91,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     databricks: loadDatabricksConfig(env),
     dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
     resolutionPollSeconds: envInt(env, "RESOLUTION_POLL_S", 300),
+    reportRetentionDays: envInt(env, "REPORT_RETENTION_DAYS", 180),
     modelPrices: loadModelPrices(env),
     pipelineTrigger:
       airflowUrl && envOptional(env, "AIRFLOW_TRIGGER_PASSWORD")

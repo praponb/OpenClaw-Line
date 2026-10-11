@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS incidents (
   resolution        TEXT,
   resolved_by       TEXT,
   agent_run_id      TEXT,
-  session_key       TEXT
+  session_key       TEXT,
+  report_pruned_at  INTEGER
 );
 CREATE TABLE IF NOT EXISTS model_usage (
   run_id      TEXT NOT NULL,
@@ -87,6 +88,8 @@ export type IncidentRow = {
   agent_run_id: string | null;
   /** OpenClaw session key of the investigator run, learned from the model call that wrote the report (joins model_usage). */
   session_key: string | null;
+  /** When the report text was removed by retention (metrics stay). */
+  report_pruned_at: number | null;
 };
 
 export type ModelUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; model: string | null };
@@ -100,6 +103,7 @@ const MIGRATIONS: [string, string][] = [
   ["resolved_by", "TEXT"],
   ["agent_run_id", "TEXT"],
   ["session_key", "TEXT"],
+  ["report_pruned_at", "INTEGER"],
 ];
 
 export type FeedbackRow = { ref: string; voter: string; rating: Rating | null; reason: Reason | null; created_at: number; updated_at: number };
@@ -234,6 +238,14 @@ export class FeedbackStore {
   claimEvent(eventId: string, at: number): boolean {
     const res = this.db.prepare(`INSERT OR IGNORE INTO line_events (event_id, received_at) VALUES (?, ?)`).run(eventId, at);
     return Number(res.changes) === 1;
+  }
+
+  /** Retention: drop report text (the only free text) of incidents older than `olderThan`; ids, timings, votes and cost stay. */
+  pruneReportText(olderThan: number, at: number): number {
+    const res = this.db
+      .prepare(`UPDATE incidents SET report_text = NULL, report_pruned_at = ? WHERE report_text IS NOT NULL AND COALESCE(report_sent_at, dispatched_at, first_seen_at) < ?`)
+      .run(at, olderThan);
+    return Number(res.changes);
   }
 
   pruneEvents(olderThan: number): void {

@@ -36,7 +36,19 @@ if (resolutionWatcher && cfg.resolutionPollSeconds > 0) {
   console.info(`[worker] MTTR: checking Airflow for later successful runs every ${cfg.resolutionPollSeconds}s`);
 }
 
+let retentionTimer: NodeJS.Timeout | undefined;
+if (store && cfg.reportRetentionDays > 0) {
+  const prune = () => {
+    const n = store.pruneReportText(Date.now() - cfg.reportRetentionDays * 86_400_000, Date.now());
+    if (n) console.info(`[retention] removed report text of ${n} incident(s) older than ${cfg.reportRetentionDays} days`);
+  };
+  prune();
+  retentionTimer = setInterval(prune, 24 * 3600 * 1000);
+  retentionTimer.unref();
+}
+
 const shutdown = async () => {
+  clearInterval(retentionTimer);
   clearInterval(resolutionTimer);
   console.info("[worker] shutting down; flushing pending incidents");
   server.close();

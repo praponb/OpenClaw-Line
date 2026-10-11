@@ -27,6 +27,9 @@ resources:
         # none | schema_drift | null_amounts | empty — simulates upstream breakage for incident tests.
         - name: inject_fault
           default: none
+        # Retention: landing files older than this are deleted by the housekeeping task.
+        - name: landing_retention_days
+          default: "90"
       # No cluster spec: tasks run on serverless job compute. disable_auto_optimization turns
       # off serverless auto-retry; a bad delivery fails the same way twice, and Airflow owns retries.
       tasks:
@@ -54,5 +57,14 @@ resources:
             - task_key: silver_transactions
           notebook_task:
             notebook_path: ../src/04_gold_daily_revenue.py
+          max_retries: 0
+          disable_auto_optimization: true
+        # Retention, after every run (also when an upstream task failed).
+        - task_key: housekeeping
+          depends_on:
+            - task_key: gold_daily_revenue
+          run_if: ALL_DONE
+          notebook_task:
+            notebook_path: ../src/05_housekeeping.py
           max_retries: 0
           disable_auto_optimization: true

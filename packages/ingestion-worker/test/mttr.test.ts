@@ -81,3 +81,23 @@ describe("MTTR reporting", () => {
     }
   });
 });
+
+describe("report text retention", () => {
+  it("removes only the report text of old incidents; timings, votes, resolution and cost stay", () => {
+    const s = new FeedbackStore(":memory:");
+    s.recordDispatch({ ref: "INC-OLD000", incidentKey: "a", dagId: "d", taskId: "t", runId: "r1", firstSeenAt: 1 * H, dispatchedAt: 1 * H });
+    s.recordReport("INC-OLD000", { text: "old report", sentAt: 1 * H + 60_000 });
+    s.recordRating("INC-OLD000", "u:1", "up", 2 * H);
+    s.recordResolution("INC-OLD000", 3 * H, "button");
+    s.recordDispatch({ ref: "INC-NEW000", incidentKey: "b", dagId: "d", taskId: "t", runId: "r2", firstSeenAt: 200 * H, dispatchedAt: 200 * H });
+    s.recordReport("INC-NEW000", { text: "new report", sentAt: 200 * H + 60_000 });
+    expect(s.pruneReportText(100 * H, 300 * H)).toBe(1);
+    expect(s.pruneReportText(100 * H, 301 * H)).toBe(0); // idempotent
+    expect(s.getIncident("INC-OLD000")).toMatchObject({ report_text: null, report_pruned_at: 300 * H, report_sent_at: 1 * H + 60_000, resolution: "button" });
+    expect(s.getIncident("INC-NEW000")!.report_text).toBe("new report");
+    expect(s.getFeedback("INC-OLD000")).toHaveLength(1);
+    const d = buildDashboardData(s.incidentsSince(0), s.feedbackSince(0), { days: 30, now: 300 * H });
+    expect(d.incidents.find((i) => i.ref === "INC-OLD000")).toMatchObject({ reportText: null, reportPrunedAt: 300 * H, resolveSeconds: 7200 });
+  });
+});
+
