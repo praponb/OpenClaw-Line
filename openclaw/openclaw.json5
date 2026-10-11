@@ -58,6 +58,10 @@
       // to the worker's feedback log. Signed with WEBHOOK_SECRET from the env.
       "report-capture": {
         enabled: true,
+        // Required for the llm_output hook (token usage for cost tracking): OpenClaw
+        // guards it because the event carries prompts and model output. This plugin
+        // is ours and forwards token counts only (plus report text via message_sent).
+        hooks: { allowConversationAccess: true },
         config: {
           workerUrl: "http://ingestion-worker:8080/v1/openclaw/report",
           promptFile: "/opt/openclaw/workspace-investigator/AGENTS.md",
