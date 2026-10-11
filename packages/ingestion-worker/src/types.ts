@@ -6,6 +6,8 @@ export type FailureEvent = {
   try_number?: number;
   logical_date?: string;
   log_url?: string;
+  /** Log file path on the Airflow worker (spec field); log_url stays for the UI link. */
+  log_filepath?: string;
   exception?: string;
   /** Set when the failed task ran a Databricks job (DatabricksRunNowOperator XCom). */
   databricks_run_id?: string;
@@ -29,6 +31,9 @@ export type Incident = {
   upstreamFailed: string[];
   /** Other failed tasks that do not depend on the root (independent failures). */
   otherFailures: string[];
+  /** Root task timing from Airflow's task instance (execution time for the summary line). */
+  rootStartedAt?: string;
+  rootDurationSeconds?: number;
   /** Sanitized, pre-filtered log excerpt for the root task. */
   logExcerpt?: string;
   logNote?: string;

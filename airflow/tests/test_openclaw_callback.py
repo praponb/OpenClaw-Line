@@ -39,7 +39,9 @@ class FakeResponse:
         return False
 
 
-def test_build_payload():
+def test_build_payload(monkeypatch):
+    monkeypatch.delenv("AIRFLOW__LOGGING__BASE_LOG_FOLDER", raising=False)
+    monkeypatch.setenv("AIRFLOW_HOME", "/opt/airflow")
     payload = openclaw_callback.build_payload(make_context())
     assert payload == {
         "dag_id": "daily_revenue_pipeline",
@@ -48,8 +50,18 @@ def test_build_payload():
         "try_number": 1,
         "logical_date": "2026-10-10T02:00:00+00:00",
         "log_url": "http://airflow/log?x=1",
+        "log_filepath": "/opt/airflow/logs/dag_id=daily_revenue_pipeline/run_id=scheduled__2026-10-10T02:00:00+00:00/task_id=extract_stripe_transactions/attempt=1.log",
         "exception": "KeyError: 'payment_intent_id'",
     }
+
+
+def test_log_filepath_handles_mapped_tasks_and_airflow2(monkeypatch):
+    monkeypatch.setenv("AIRFLOW__LOGGING__BASE_LOG_FOLDER", "/logs")
+    ctx = make_context()
+    ctx["ti"].map_index = 3
+    assert openclaw_callback.build_payload(ctx)["log_filepath"].endswith("/task_id=extract_stripe_transactions/map_index=3/attempt=1.log")
+    ctx["ti"].log_filepath = "/airflow2/logs/x/1.log"  # Airflow 2 exposes it directly
+    assert openclaw_callback.build_payload(ctx)["log_filepath"] == "/airflow2/logs/x/1.log"
 
 
 class DatabricksRunNowOperator:

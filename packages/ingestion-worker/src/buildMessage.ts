@@ -1,4 +1,5 @@
 import { sanitize } from "@openclaw-line/shared";
+import { fmtDuration } from "./feedback.js";
 import type { Incident } from "./types.js";
 
 const MAX_EXCEPTION_CHARS = 2_000;
@@ -21,7 +22,10 @@ export function buildIncidentMessage(incident: Incident): string {
   ];
   if (r.try_number !== undefined) lines.push(`try_number: ${r.try_number}`);
   if (r.logical_date) lines.push(`logical_date: ${r.logical_date}`);
+  if (incident.rootStartedAt) lines.push(`task_started: ${incident.rootStartedAt}`);
+  if (incident.rootDurationSeconds !== undefined) lines.push(`task_duration: ${fmtDuration(incident.rootDurationSeconds)}`);
   if (r.log_url) lines.push(`airflow_log_url: ${r.log_url}`);
+  if (r.log_filepath) lines.push(`airflow_log_filepath: ${r.log_filepath}`);
   if (r.databricks_run_id) lines.push(`databricks_run_id: ${r.databricks_run_id}`);
   if (r.databricks_run_url) lines.push(`databricks_run_url: ${r.databricks_run_url}`);
   lines.push(`failed tasks downstream of the root (blast radius, do not root-cause): ${list(incident.failedDescendants)}`);
