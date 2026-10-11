@@ -1,0 +1,48 @@
+# Tests, typecheck and plugin manifest check on every PR and push to main.
+# Needs no secrets: Databricks, LINE, Moonshot and GitHub are mocked in the tests.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: TypeScript (build, typecheck, vitest, plugin manifest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # The packages import each other's dist/, so build before typecheck and tests.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      # Fails when packages/plugin/openclaw.plugin.json is stale (run `make validate-plugin` locally).
+      - name: Plugin manifest is up to date and valid
+        working-directory: packages/plugin
+        run: npx openclaw plugins build --entry ./dist/index.js --check && npx openclaw plugins validate --entry ./dist/index.js
+
+  python:
+    name: Python (Airflow callback, Databricks event generator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pytest
+      - run: python -m pytest -q airflow/tests databricks/tests

@@ -59,6 +59,8 @@ make validate-plugin    # openclaw plugins build --check + validate
 pip install pytest && make test-py
 ```
 
+CI (`.github/workflows/ci.yml`) runs the same checks on every PR and push to `main`: build, typecheck, `vitest`, the plugin manifest check, and `pytest` for `airflow/tests` and `databricks/tests`. It needs no secrets.
+
 ## Demo (docker compose)
 
 ```bash
@@ -151,7 +153,7 @@ Open items:
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), GitHub/GitLab provider with a read-only token, a production dbt manifest sync, the "data catalog" lineage option.
 - Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
 - Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.
-- CI (vitest + pytest on PRs), cost tracking per incident, and a data-residency review for sending sanitized evidence to Moonshot.
+- Cost tracking per incident, and a data-residency review for sending sanitized evidence to Moonshot.
 - Spec details: execution time in the summary line; the callback sends `log_url` rather than `log_filepath`.
 
 ## Production notes
