@@ -47,10 +47,9 @@
           // DATABRICKS_HOST/CLIENT_ID/CLIENT_SECRET) are read from the environment only.
           airflowBaseUrl: "${AIRFLOW_BASE_URL}",
           airflowApiVersion: "v2",
-          gitProvider: "local", // github | gitlab | local
-          localRepoPath: "/data/repo", // mounted read-only
-          // githubRepo: "acme/data-pipelines",
-          // gitlabProject: "data/pipelines",
+          // Git evidence comes from the environment (demo/docker-compose.yml):
+          // GIT_PROVIDER=local (seeded demo repo, default) | github | gitlab, plus
+          // GITHUB_REPO / GITLAB_PROJECT, GIT_REF and GIT_PATH_PREFIXES.
           dbtManifestPath: "/data/dbt/manifest.json", // mounted read-only
           lineageMapPath: "/data/dbt/lineage_map.json",
         },

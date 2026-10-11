@@ -1,4 +1,4 @@
-import type { CommitQuery, FileCommit, GitProvider } from "./types.js";
+import type { CommitQuery, FileCommit, FileQuery, GitProvider } from "./types.js";
 
 type GithubCommitListItem = {
   sha: string;
@@ -37,19 +37,34 @@ export class GithubProvider implements GitProvider {
     return commits;
   }
 
+  async fileExists(q: FileQuery): Promise<boolean> {
+    const path = q.filePath.split("/").map(encodeURIComponent).join("/");
+    const res = await this.request(`/repos/${this.opts.repo}/contents/${path}${q.ref ? `?ref=${encodeURIComponent(q.ref)}` : ""}`, q.signal);
+    if (res.ok) return true;
+    if (res.status !== 404) throw new Error(`GitHub API ${res.status} for /repos/${this.opts.repo}/contents`);
+    // A private repo also answers 404 without a valid token: make sure the repo itself is reachable.
+    const repo = await this.request(`/repos/${this.opts.repo}`, q.signal);
+    if (!repo.ok) throw new Error(`GitHub repository ${this.opts.repo} is not accessible (HTTP ${repo.status}); check GITHUB_REPO and GITHUB_TOKEN`);
+    return false;
+  }
+
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const res = await this.request(path, signal);
+    if (!res.ok) throw new Error(`GitHub API ${res.status} for ${path.split("?")[0]}`);
+    return (await res.json()) as T;
+  }
+
+  private request(path: string, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "openclaw-pipeline-investigator",
     };
     if (this.opts.token) headers.Authorization = `Bearer ${this.opts.token}`;
-    const res = await (this.opts.fetch ?? fetch)(`${this.opts.apiUrl.replace(/\/+$/, "")}${path}`, {
+    return (this.opts.fetch ?? fetch)(`${this.opts.apiUrl.replace(/\/+$/, "")}${path}`, {
       method: "GET",
       headers,
       signal: signal ?? AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`GitHub API ${res.status} for ${path.split("?")[0]}`);
-    return (await res.json()) as T;
   }
 }

@@ -49,6 +49,29 @@ export async function getGitFileDiff(
   } catch (err) {
     return toolError((err as Error).message);
   }
+  const ref = cfg.git?.ref;
+  const candidates = [filePath, ...cfg.gitPathPrefixes.filter((p) => !filePath.startsWith(p)).map((p) => p + filePath)];
+  let resolved: string | undefined;
+  try {
+    for (const candidate of candidates) {
+      if (await provider.fileExists({ filePath: candidate, ref, signal: deps.signal })) {
+        resolved = candidate;
+        break;
+      }
+    }
+  } catch (err) {
+    return toolError(`could not check whether ${filePath} exists in the repository: ${sanitize((err as Error).message)}`);
+  }
+  if (!resolved) {
+    return (
+      `file=${filePath} provider=${provider.name}${ref ? ` ref=${ref}` : ""}\n` +
+      `File not found in the repository (tried: ${candidates.join(", ")}). ` +
+      "This is NOT evidence that the code is unchanged: the path is wrong or the code lives in another repository."
+    );
+  }
+  const requested = resolved === filePath ? "" : ` (requested ${filePath})`;
+  filePath = resolved;
+
   const lookback = Math.min(30, Math.max(1, Math.trunc(params.lookback_days ?? 3)));
   const since = new Date((deps.now?.() ?? new Date()).getTime() - lookback * 86_400_000).toISOString();
 
@@ -58,15 +81,15 @@ export async function getGitFileDiff(
       filePath,
       sinceIso: since,
       limit: MAX_COMMITS,
-      ref: cfg.git?.ref,
+      ref,
       signal: deps.signal,
     });
   } catch (err) {
     return toolError(`could not read git history for ${filePath}: ${sanitize((err as Error).message)}`);
   }
 
-  const head = `file=${filePath} provider=${provider.name} lookback_days=${lookback} since=${since}`;
-  if (!commits.length) return `${head}\nNo commits touched this file in the lookback window.`;
+  const head = `file=${filePath}${requested} provider=${provider.name} lookback_days=${lookback} since=${since}`;
+  if (!commits.length) return `${head}\nNo commits touched this file in the lookback window. The file exists in the repository; its last change is older than ${since}.`;
 
   const blocks = commits.map((c) => {
     const patch = c.patch.length > MAX_PATCH_CHARS ? c.patch.slice(0, MAX_PATCH_CHARS) + "\n... [patch truncated]" : c.patch;
