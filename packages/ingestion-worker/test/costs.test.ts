@@ -31,16 +31,19 @@ describe("model cost", () => {
     expect(buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage, prices: null }).modelCost).toMatchObject({ usd: null, priced: false, incidents: 1 });
   });
 
-  it("links usage through the session key of the run that sent the report (the gateway's runId is a different id)", () => {
+  it("links all model calls of the session whose report carries the incident ref", () => {
     const s = new FeedbackStore(":memory:");
     s.recordDispatch({ ref: "INC-CCCCCC", incidentKey: "k", dagId: "d", taskId: "t", runId: "r", firstSeenAt: 1000, dispatchedAt: 2000 });
-    s.setAgentRunId("INC-CCCCCC", "hook-job-43d1");
-    s.recordModelUsage({ runId: "agent-run-e176", sessionKey: "agent:pipeline-investigator:hook:abc", input: 736, output: 4063, cacheRead: 21504, cacheWrite: 0 }, 3000);
+    s.setAgentRunId("INC-CCCCCC", "hook-job-0d6e"); // the gateway's job id: never matches usage rows
+    const session = "agent:pipeline-investigator:cron:e12c:run:a51a";
+    s.recordModelUsage({ runId: "agent-run-702f", sessionKey: session, input: 200, output: 100, cacheRead: 5000, cacheWrite: 0 }, 2500); // tool-call turn
+    s.recordModelUsage({ runId: "agent-run-702f", sessionKey: session, input: 416, output: 2200, cacheRead: 13312, cacheWrite: 0 }, 3000); // report turn
+    s.recordModelUsage({ runId: "other", sessionKey: "agent:pipeline-investigator:cron:zzz:run:yyy", input: 9, output: 9, cacheRead: 0, cacheWrite: 0 }, 3000);
     expect(s.usageSince(0).get("INC-CCCCCC")).toBeUndefined();
-    s.recordReport("INC-CCCCCC", { text: "report\nRef: INC-CCCCCC", sentAt: 4000, sessionKey: "agent:pipeline-investigator:hook:abc" });
-    expect(s.usageSince(0).get("INC-CCCCCC")).toMatchObject({ input: 736, output: 4063, cacheRead: 21504, calls: 1 });
+    s.linkUsageSession("INC-CCCCCC", session);
+    expect(s.usageSince(0).get("INC-CCCCCC")).toMatchObject({ input: 616, output: 2300, cacheRead: 18312, calls: 2 });
     const d = buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage: s.usageSince(0), prices: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 } });
-    expect(d.incidents[0]!.costUsd).toBeCloseTo((736 * 3 + 4063 * 15 + 21504 * 0.3) / 1e6);
+    expect(d.incidents[0]!.costUsd).toBeCloseTo((616 * 3 + 2300 * 15 + 18312 * 0.3) / 1e6);
   });
 
   it("prices are optional and validated", () => {
@@ -72,12 +75,14 @@ describe("/v1/openclaw/usage", () => {
       const ts = String(Math.floor(Date.now() / 1000));
       return fetch(url, { method: "POST", headers: { "x-openclaw-timestamp": ts, "x-openclaw-signature": sign(secret, ts, body) }, body });
     };
-    expect((await post(JSON.stringify({ runId: "run-9", input: 100, output: 20, cacheRead: 0, cacheWrite: 0 }))).status).toBe(202);
+    store.recordDispatch({ ref: "INC-BBBBBB", incidentKey: "k", dagId: "d", taskId: "t", runId: "r", dispatchedAt: 1 });
+    const session = "agent:pipeline-investigator:cron:j:run:r";
+    expect((await post(JSON.stringify({ runId: "run-9", sessionKey: session, input: 100, output: 20, cacheRead: 0, cacheWrite: 0 }))).status).toBe(202);
+    expect((await post(JSON.stringify({ runId: "run-9", sessionKey: session, ref: "INC-BBBBBB", input: 50, output: 10, cacheRead: 0, cacheWrite: 0 }))).status).toBe(202);
     expect((await post(JSON.stringify({ runId: "run-9", input: 1 }), "wrong")).status).toBe(401);
     expect((await post(JSON.stringify({ runId: "bad id; drop", input: 1 }))).status).toBe(400);
-    store.recordDispatch({ ref: "INC-BBBBBB", incidentKey: "k", dagId: "d", taskId: "t", runId: "r", dispatchedAt: 1 });
-    store.setAgentRunId("INC-BBBBBB", "run-9");
-    expect(store.usageSince(0).get("INC-BBBBBB")).toMatchObject({ input: 100, output: 20, calls: 1 });
+    expect((await post(JSON.stringify({ runId: "x", sessionKey: "s:1", ref: "INC-ZZZZZZ", input: 1 }))).status).toBe(202); // unknown ref: stored, not linked
+    expect(store.usageSince(0).get("INC-BBBBBB")).toMatchObject({ input: 150, output: 30, calls: 2 });
   });
 });
 

@@ -273,8 +273,11 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
     const runId = str(u.runId, 100);
     if (!runId || !/^[A-Za-z0-9_-]+$/.test(runId)) return send(400, { error: "missing or invalid runId" });
+    const sessionKey = validSessionKey(u.sessionKey);
+    const ref = typeof u.ref === "string" && INCIDENT_REF_RE.test(u.ref) ? u.ref : undefined;
+    if (ref && sessionKey && store.getIncident(ref)) store.linkUsageSession(ref, sessionKey);
     store.recordModelUsage(
-      { runId, sessionKey: validSessionKey(u.sessionKey), provider: str(u.provider, 60), model: str(u.model, 100), input: n(u.input), output: n(u.output), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite) },
+      { runId, sessionKey, provider: str(u.provider, 60), model: str(u.model, 100), input: n(u.input), output: n(u.output), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite) },
       now(),
     );
     return send(202, { recorded: true });
@@ -290,7 +293,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       return send(401, { error: "invalid signature" });
     }
     if (!store) return send(202, { stored: false, reason: "feedback disabled" });
-    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown; sessionKey?: unknown };
+    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown };
     try {
       r = JSON.parse(body);
     } catch {
@@ -305,7 +308,6 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       sentAt: now(),
       messageId: typeof r.messageId === "string" ? r.messageId.slice(0, 100) : undefined,
       promptVersion: typeof r.promptVersion === "string" ? r.promptVersion.slice(0, 64) : undefined,
-      sessionKey: validSessionKey(r.sessionKey),
     });
     if (!stored) log.warn(`[worker] report for unknown ref ${r.ref} ignored`);
     return send(stored ? 200 : 404, { stored });

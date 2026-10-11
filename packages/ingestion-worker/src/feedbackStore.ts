@@ -85,7 +85,7 @@ export type IncidentRow = {
   resolved_by: string | null;
   /** OpenClaw agent run id (joins model_usage). */
   agent_run_id: string | null;
-  /** OpenClaw session key of the run that sent the report (joins model_usage). */
+  /** OpenClaw session key of the investigator run, learned from the model call that wrote the report (joins model_usage). */
   session_key: string | null;
 };
 
@@ -145,14 +145,16 @@ export class FeedbackStore {
   }
 
   /** Report text captured by the report-capture plugin (may arrive before the hook completion). */
-  recordReport(ref: string, r: { text: string; sentAt: number; messageId?: string; promptVersion?: string; sessionKey?: string }): boolean {
+  recordReport(ref: string, r: { text: string; sentAt: number; messageId?: string; promptVersion?: string }): boolean {
     const res = this.db
-      .prepare(
-        `UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version),
-           session_key = COALESCE(?, session_key) WHERE ref = ?`,
-      )
-      .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, r.sessionKey ?? null, ref);
+      .prepare(`UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version) WHERE ref = ?`)
+      .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, ref);
     return Number(res.changes) > 0;
+  }
+
+  /** The investigator session that wrote this incident's report; all model calls in it count toward the incident. */
+  linkUsageSession(ref: string, sessionKey: string): void {
+    this.db.prepare(`UPDATE incidents SET session_key = ? WHERE ref = ?`).run(sessionKey, ref);
   }
 
   setAgentRunId(ref: string, runId: string): void {

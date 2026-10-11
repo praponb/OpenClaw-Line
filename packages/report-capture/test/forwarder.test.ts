@@ -58,6 +58,15 @@ describe("usage forwarder", () => {
     expect(body).not.toContain("secret report");
   });
 
+  it("adds the incident ref when this call wrote the report (the text itself is not sent)", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 202 }));
+    const forward = createUsageForwarder(ucfg, { fetch: fetchMock as typeof fetch, log: { warn: vi.fn() } });
+    await forward({ runId: "r", usage: { input: 1, output: 2 }, assistantTexts: ["🚨 Incident Summary ...", "Ref: INC-7F3A2K"] }, { agentId: "pipeline-investigator", sessionKey: "s" });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.ref).toBe("INC-7F3A2K");
+    expect(JSON.stringify(body)).not.toContain("Incident Summary");
+  });
+
   it("ignores other agents and events without usage or run id", async () => {
     const fetchMock = vi.fn(async () => new Response("{}"));
     const forward = createUsageForwarder(ucfg, { fetch: fetchMock as typeof fetch, log: { warn: vi.fn() } });
