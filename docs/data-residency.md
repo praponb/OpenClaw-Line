@@ -14,7 +14,7 @@ This is an engineering review, not legal advice. Use it as input for a Thai PDPA
 | 2 | ~~**Pipeline error messages carry data values.**~~ ✅ Fixed 2026-10-11: silver now reports field names and counts only. Previously: Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
 | 3 | **Evidence sent to the model provider leaves Thailand and may be used for training.** Sanitized logs, errors, diffs and table names go to Moonshot's international API (`api.moonshot.ai`), operated by Moonshot AI Pte. Ltd. with servers in **Singapore**. Its terms allow using customer content to improve the service, including training, unless agreed otherwise in writing (enterprise arrangement). Data is kept while the account is active. | **High for real data** |
 | 4 | **The sanitizer misses some Thai personal data.** Thai national IDs and phone numbers are masked since 2026-10-11; names, addresses and bank account numbers still aren't. | Medium (was: no Thai identifiers at all) |
-| 5 | ~~**Nothing is ever deleted.**~~ ✅ Retention set 2026-10-11: report text 180 days, Airflow logs 30 days (metadata 90 days via `make airflow-db-clean`), landing files 90 days, Delta `VACUUM` 7 days. | Done |
+| 5 | ~~**Nothing is ever deleted.**~~ ✅ Retention set 2026-10-11: report text 180 days, Airflow logs 30 days, Airflow metadata 90 days (daily cron on the server), landing files 90 days, Delta `VACUUM` 7 days. | Done |
 | 6 | **Credentials are well scoped**: all least-privilege and read-only except the two "write" accounts (Airflow runner, dashboard trigger), which can only start runs. ✅ The old `.env` and database backups were deleted on 2026-10-11. | Low |
 
 Today the pipeline only handles **synthetic** Stripe-style events (`databricks/src/stripe_events.py`), so nothing here is personal data yet. The findings matter **before real production data is connected**.
@@ -44,14 +44,14 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 | **Databricks (GCP)** | Pipeline data (landing files, bronze/silver/gold tables); run metadata and logs; notebook source (from the bundle). | Workspace/metastore `asia-south1`, Mumbai ✅ | Run history up to 60 days (Databricks docs) ✅; landing files 90 days and `VACUUM` 7 days via the job's housekeeping task ✅ | Service principals: runner `CAN_MANAGE_RUN`, reader `CAN_VIEW` + `BROWSE` (metadata only; data and volume reads return 403) ✅. Serverless compute. |
 | **Google Cloud Storage** | Raw landing files (`landing/`), managed Delta tables (`_managed/`). | `asia-southeast3`, Bangkok ✅ | `landing/` date folders deleted after 90 days by the housekeeping task; `_managed/` follows `VACUUM` ✅ | Public access prevention on; access only through the Unity Catalog storage credential. |
 | **GitHub** | Read by the investigator: commit metadata and diffs of `praponb/OpenClaw-Line`. No pipeline data is sent to GitHub. | US (GitHub) | Repository history | Fine-grained token limited to this one repo with Contents read-only; write probes return 403 ✅. |
-| **Cloudflare** | Dashboard pages (incident reports, run status), Airflow UI, LINE webhook traffic; Access login email. TLS terminates at Cloudflare's edge, so Cloudflare can see this traffic in clear text. | Edges `bkk08`, `sin12`, `sin15` ✅ | Zero Trust Access logs: 24 hours on the Free plan (30 days Standard, 180 days Enterprise); admin audit logs 18 months; authentication logs 6 months ✅. Which plan you're on ❓ | Access (one-time PIN, one allowed email) plus worker-side JWT check; Protect-with-Access on the Airflow route ✅. |
+| **Cloudflare** | Dashboard pages (incident reports, run status), Airflow UI, LINE webhook traffic; Access login email. TLS terminates at Cloudflare's edge, so Cloudflare can see this traffic in clear text. | Edges `bkk08`, `sin12`, `sin15` ✅ | **Free plan** (confirmed by the owner, 2026-10-11): Zero Trust Access logs kept 24 hours; admin audit logs 18 months; authentication logs 6 months ✅. | Access (one-time PIN, one allowed email) plus worker-side JWT check; Protect-with-Access on the Airflow route ✅. |
 
 ## Data at rest on the home server (Bangkok)
 
 | Store | Content | Retention |
 |---|---|---|
 | `demo/.state/feedback/feedback.db` (SQLite) | Incidents (ids, timestamps, full report text, prompt version, resolution), feedback (hashed voter, rating, reason), model token usage. | Report text removed after `REPORT_RETENTION_DAYS` (default 180); timings, votes, resolution and cost stay. `line_events` pruned after 7 days ✅. |
-| Airflow volume `openclaw-line-demo_airflow-home` | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG, daily 03:00 Bangkok: task logs after 30 days ✅. Metadata after 90 days with `make airflow-db-clean` (by hand or cron; Airflow 3 tasks can't reach the metadata DB). |
+| Airflow volume `openclaw-line-demo_airflow-home` | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG, daily 03:00 Bangkok: task logs after 30 days ✅. Metadata after 90 days: server crontab runs `make airflow-db-clean` daily at 03:15 Bangkok (installed 2026-10-11; output in `demo/.state/airflow-db-clean.log`) ✅. It isn't in the DAG because Airflow 3 tasks can't reach the metadata DB. |
 | `demo/.env` | All secrets (Moonshot key, LINE token, Databricks OAuth secrets, GitHub token, Airflow passwords, Cloudflare tunnel token). | Mode 600 ✅; old backups deleted 2026-10-11 ✅. |
 | `demo/.state/incidents` | Dry-run incident messages (only written in `DRY_RUN` mode). | Until deleted. |
 
@@ -96,7 +96,7 @@ In order. Items 1–4 should happen before real production data is connected.
    - Synthetic data is fine as is. For real data, ask Moonshot for a written training opt-out and DPA, or change `OPENCLAW_MODEL` (one line) to a provider with no-training and regional terms.
 5. ✅ **Retention periods**, set 2026-10-11:
    - worker: report text after `REPORT_RETENTION_DAYS` (180)
-   - Airflow `housekeeping` DAG: logs after 30 days; metadata after 90 days with `make airflow-db-clean`
+   - Airflow `housekeeping` DAG: logs after 30 days; metadata after 90 days with `make airflow-db-clean` from the server crontab (daily 03:15 Bangkok)
    - the job's `housekeeping` task: landing date folders after `landing_retention_days` (90), plus `VACUUM` (7 days) on bronze, silver and gold
 6. ✅ **Old secret and database backups deleted** on the server (2026-10-11).
 7. **When moving to a team:** send reports to a LINE group with known members (the target is currently a personal chat), and add those people's emails to the Cloudflare Access policy and `DASHBOARD_ALLOWED_EMAILS`.
@@ -107,7 +107,7 @@ In order. Items 1–4 should happen before real production data is connected.
 - [x] **Kimi K3 prices** confirmed on Moonshot's price page: input $3.00, cached input $0.30, output $15.00 per MTok; cache writes $3.00 (5 min) or $6.00 (1 h). They match the configured values. Cache writes are estimated at $3.00 because the usage data doesn't say which TTL was used.
 - [~] **LINE:** message content kept for a minimum period then auto-deleted, not used beyond delivery. The storage location for Thai users is not published; ask LY Corporation if the PDPA assessment needs it.
 - [x] **Databricks:** run history up to 60 days. Region `asia-south1` from the Unity Catalog metastore (a workspace and its metastore share a region).
-- [~] **Cloudflare:** Access logs 24 h (Free) / 30 d (Standard) / 180 d (Enterprise); admin audit logs 18 months; authentication logs 6 months. Check which plan the account is on.
+- [x] **Cloudflare:** the account is on the **Free plan** (owner, 2026-10-11), so Access logs are kept 24 hours; admin audit logs 18 months; authentication logs 6 months.
 
 ## Sources
 
