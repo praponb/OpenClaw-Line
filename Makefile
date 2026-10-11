@@ -116,8 +116,9 @@ lakehouse-run:
 	cd databricks && databricks bundle run daily_revenue_lakehouse -p $(LAKEHOUSE_PROFILE) --params inject_fault=$(FAULT)
 
 # Retention for Airflow's metadata DB (DAG runs, task instances, XComs). Runs outside
-# the task sandbox: Airflow 3 tasks can't reach the metadata DB. Cron example (server):
-#   15 3 * * * cd ~/OpenClaw-Line && make -s airflow-db-clean >/dev/null
+# the task sandbox: Airflow 3 tasks can't reach the metadata DB. Server crontab (docker is
+# in /usr/local/bin, which cron's default PATH lacks):
+#   15 3 * * * PATH=/usr/local/bin:/usr/bin:/bin; cd $HOME/OpenClaw-Line && make -s airflow-db-clean > demo/.state/airflow-db-clean.log 2>&1
 AIRFLOW_METADATA_RETENTION_DAYS ?= 90
 airflow-db-clean:
 	$(COMPOSE) exec -T airflow airflow db clean \
