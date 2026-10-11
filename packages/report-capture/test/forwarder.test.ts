@@ -48,13 +48,13 @@ describe("usage forwarder", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 202 }));
     const forward = createUsageForwarder(ucfg, { fetch: fetchMock as typeof fetch, log: { warn: vi.fn() } });
     const event = { runId: "run-1", provider: "moonshot", model: "kimi-k3", usage: { input: 1200.4, output: 300, cacheRead: 5000, cacheWrite: -1 }, assistantTexts: ["secret report"] };
-    expect(await forward(event, { agentId: "pipeline-investigator" })).toBe(true);
+    expect(await forward(event, { agentId: "pipeline-investigator", sessionKey: "agent:pipeline-investigator:hook:abc" })).toBe(true);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(ucfg.usageUrl);
     const body = String(init.body);
     const headers = init.headers as Record<string, string>;
     expect(verifySignature("whsec", body, headers["x-openclaw-timestamp"], headers["x-openclaw-signature"])).toBe(true);
-    expect(JSON.parse(body)).toEqual({ runId: "run-1", provider: "moonshot", model: "kimi-k3", input: 1200, output: 300, cacheRead: 5000, cacheWrite: 0 });
+    expect(JSON.parse(body)).toEqual({ runId: "run-1", sessionKey: "agent:pipeline-investigator:hook:abc", provider: "moonshot", model: "kimi-k3", input: 1200, output: 300, cacheRead: 5000, cacheWrite: 0 });
     expect(body).not.toContain("secret report");
   });
 

@@ -14,7 +14,8 @@ export type ForwarderConfig = {
 };
 
 export type SentEvent = { content?: string; success?: boolean; messageId?: string };
-export type SentContext = { channelId?: string };
+/** sessionKey equals the one llm_output fires with (OpenClaw contract), linking usage to the report. */
+export type SentContext = { channelId?: string; sessionKey?: string };
 type Log = { warn: (msg: string) => void; info?: (msg: string) => void };
 
 /** Short content hash of the prompt file, so feedback can be compared across prompt edits. */
@@ -37,7 +38,7 @@ export function createReportForwarder(cfg: ForwarderConfig, deps: { fetch?: type
     const content = event.content ?? "";
     const ref = REF_RE.exec(content)?.[1];
     if (!ref) return false;
-    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion });
+    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion, sessionKey: ctx?.sessionKey });
     const ts = String(Math.floor((deps.now ?? Date.now)() / 1000));
     try {
       const res = await (deps.fetch ?? fetch)(cfg.workerUrl, {
@@ -73,7 +74,7 @@ export type LlmOutputEvent = {
   model?: string;
   usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
 };
-export type AgentContext = { agentId?: string; runId?: string };
+export type AgentContext = { agentId?: string; runId?: string; sessionKey?: string };
 
 /**
  * `llm_output` observer: forward each model call's token usage, keyed by the
@@ -89,6 +90,7 @@ export function createUsageForwarder(cfg: UsageForwarderConfig, deps: { fetch?: 
     const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : 0);
     const body = JSON.stringify({
       runId,
+      sessionKey: ctx?.sessionKey,
       provider: event.provider ?? "",
       model: event.model ?? "",
       input: n(u.input),

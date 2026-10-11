@@ -31,6 +31,18 @@ describe("model cost", () => {
     expect(buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage, prices: null }).modelCost).toMatchObject({ usd: null, priced: false, incidents: 1 });
   });
 
+  it("links usage through the session key of the run that sent the report (the gateway's runId is a different id)", () => {
+    const s = new FeedbackStore(":memory:");
+    s.recordDispatch({ ref: "INC-CCCCCC", incidentKey: "k", dagId: "d", taskId: "t", runId: "r", firstSeenAt: 1000, dispatchedAt: 2000 });
+    s.setAgentRunId("INC-CCCCCC", "hook-job-43d1");
+    s.recordModelUsage({ runId: "agent-run-e176", sessionKey: "agent:pipeline-investigator:hook:abc", input: 736, output: 4063, cacheRead: 21504, cacheWrite: 0 }, 3000);
+    expect(s.usageSince(0).get("INC-CCCCCC")).toBeUndefined();
+    s.recordReport("INC-CCCCCC", { text: "report\nRef: INC-CCCCCC", sentAt: 4000, sessionKey: "agent:pipeline-investigator:hook:abc" });
+    expect(s.usageSince(0).get("INC-CCCCCC")).toMatchObject({ input: 736, output: 4063, cacheRead: 21504, calls: 1 });
+    const d = buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage: s.usageSince(0), prices: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 } });
+    expect(d.incidents[0]!.costUsd).toBeCloseTo((736 * 3 + 4063 * 15 + 21504 * 0.3) / 1e6);
+  });
+
   it("prices are optional and validated", () => {
     const base = { WEBHOOK_SECRET: "w", OPENCLAW_HOOK_TOKEN: "t", LINE_TARGET_ID: "C1" };
     expect(loadConfig(base).modelPrices).toBeNull();
