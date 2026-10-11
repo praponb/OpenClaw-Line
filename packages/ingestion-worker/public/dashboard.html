@@ -469,7 +469,7 @@
       i.reasons.length ? [h("dt", null, "Reasons"), h("dd", null, i.reasons.map(function (r) { return r.label + (r.count > 1 ? " ×" + r.count : ""); }).join(", "))] : null);
     var report = i.reportText
       ? h("pre", { class: "report" }, i.reportText)
-      : h("div", { class: "report dim" }, i.state === "running" ? "Investigation in progress…" : "Report text was not captured for this incident.");
+      : h("div", { class: "report dim" }, i.state === "running" ? "Investigation in progress…" : i.reportPrunedAt ? "Report text was removed on " + fmtFull(i.reportPrunedAt) + " (retention). Timings, feedback and cost are kept." : "Report text was not captured for this incident.");
     return h("div", { class: "detail-grid" }, h("div", null, timeline, facts), report);
   }
 

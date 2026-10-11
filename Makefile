@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
+.PHONY: airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
 
 install:
 	npm install
@@ -114,3 +114,12 @@ lakehouse-deploy:
 # Manual run; FAULT=schema_drift|null_amounts|empty simulates upstream breakage.
 lakehouse-run:
 	cd databricks && databricks bundle run daily_revenue_lakehouse -p $(LAKEHOUSE_PROFILE) --params inject_fault=$(FAULT)
+
+# Retention for Airflow's metadata DB (DAG runs, task instances, XComs). Runs outside
+# the task sandbox: Airflow 3 tasks can't reach the metadata DB. Cron example (server):
+#   15 3 * * * cd ~/OpenClaw-Line && make -s airflow-db-clean >/dev/null
+AIRFLOW_METADATA_RETENTION_DAYS ?= 90
+airflow-db-clean:
+	$(COMPOSE) exec -T airflow airflow db clean \
+	  --clean-before-timestamp "$$(date -u -d '-$(AIRFLOW_METADATA_RETENTION_DAYS) days' +%Y-%m-%dT%H:%M:%S+00:00)" --skip-archive --yes
+

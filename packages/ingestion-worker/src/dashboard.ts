@@ -44,6 +44,7 @@ export type DashboardIncident = {
   votes: Record<Rating, number>;
   reasons: { reason: Reason; label: string; count: number }[];
   reportText: string | null;
+  reportPrunedAt: number | null;
 };
 
 export type DashboardData = {
@@ -110,6 +111,7 @@ export function buildDashboardData(
       votes,
       reasons: [...reasonCounts].map(([reason, count]) => ({ reason, label: REASONS[reason], count })),
       reportText: i.report_text,
+      reportPrunedAt: i.report_pruned_at,
     };
   });
 
