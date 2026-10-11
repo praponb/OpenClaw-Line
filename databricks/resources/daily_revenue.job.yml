@@ -6,8 +6,9 @@ resources:
         Stripe-style payment events -> bronze (Auto Loader) -> silver transactions -> gold daily revenue.
         No schedule here: Airflow triggers it and owns retries and failure alerts.
       max_concurrent_runs: 1
-      # Standard serverless mode: slower start-up, lower cost than performance-optimized.
-      performance_target: STANDARD
+      # Performance-optimized serverless: ~2 min per run vs ~12 min in STANDARD mode
+      # (STANDARD waits ~5 min for compute and runs slower), at a higher DBU rate.
+      performance_target: PERFORMANCE_OPTIMIZED
       timeout_seconds: 3600
       # Managed here, not in the UI: a deploy would overwrite UI changes.
       permissions:
