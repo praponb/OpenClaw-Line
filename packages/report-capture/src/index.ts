@@ -1,11 +1,13 @@
 import { buildJsonPluginConfigSchema, definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { createReportForwarder, promptVersionOf } from "./forwarder.js";
+import { createReportForwarder, createUsageForwarder, promptVersionOf } from "./forwarder.js";
 
 /**
  * Phase 3: capture each delivered investigator report so engineer feedback
  * (👍 / 👎 / Misleading) can be reviewed against the exact report text.
  * OpenClaw never returns model output to the hook caller, so this observes
- * `message_sent` and forwards reports carrying a `Ref: INC-…` line.
+ * `message_sent` and forwards reports carrying a `Ref: INC-…` line. It also
+ * forwards the investigator's per-call token usage (`llm_output`) for cost
+ * tracking.
  */
 export default definePluginEntry({
   id: "report-capture",
@@ -16,6 +18,8 @@ export default definePluginEntry({
     additionalProperties: false,
     properties: {
       workerUrl: { type: "string" },
+      usageUrl: { type: "string" },
+      agentId: { type: "string" },
       promptFile: { type: "string" },
       channel: { type: "string" },
     },
@@ -40,6 +44,17 @@ export default definePluginEntry({
     );
     api.on("message_sent", (event, ctx) => {
       void forward(event, ctx);
+    });
+    const forwardUsage = createUsageForwarder(
+      {
+        usageUrl: typeof pc.usageUrl === "string" ? pc.usageUrl : workerUrl.replace(/\/report$/, "/usage"),
+        secret,
+        agentId: typeof pc.agentId === "string" ? pc.agentId : "pipeline-investigator",
+      },
+      { log: api.logger },
+    );
+    api.on("llm_output", (event, ctx) => {
+      void forwardUsage(event, ctx);
     });
   },
 });

@@ -8,6 +8,8 @@ import type { DispatchResult, Dispatcher } from "./dispatcher.js";
 import { AccessVerifier, accessToken } from "./cfAccess.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { PipelineStatus } from "./pipelineStatus.js";
+import { CostTracker } from "./costs.js";
+import { PipelineTrigger } from "./pipelineTrigger.js";
 import { ResolutionWatcher } from "./resolutionWatcher.js";
 import { TestNotifier, isSameOriginAction } from "./testNotification.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
@@ -47,6 +49,7 @@ export type WorkerDeps = {
   now?: () => number;
   accessVerifier?: Pick<AccessVerifier, "verify">;
   pipeline?: Pick<PipelineStatus, "get">;
+  trigger?: Pick<PipelineTrigger, "trigger" | "dagId">;
 };
 
 export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: WorkerDeps = {}): Worker {
@@ -57,6 +60,8 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const store = deps.store ?? (fb ? new FeedbackStore(fb.dbPath) : undefined);
   const line = deps.line ?? (fb ? new LineClient(fb.channelAccessToken, { baseUrl: fb.lineApiBaseUrl }) : undefined);
   const pipeline = deps.pipeline ?? (cfg.databricks ? new PipelineStatus(cfg.databricks, { now }) : undefined);
+  const costs = new CostTracker({ line, pipeline: cfg.databricks && pipeline instanceof PipelineStatus ? pipeline : undefined, now });
+  const trigger = deps.trigger ?? (cfg.pipelineTrigger ? new PipelineTrigger(cfg.pipelineTrigger, { now }) : undefined);
   const testNotifier = new TestNotifier(line, cfg.openclaw.to, { now, dailyLimit: cfg.dashboardTestDailyLimit });
 
   async function investigate(key: string, events: FailureEvent[]): Promise<void> {
@@ -115,6 +120,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     if (result.ok) log.info(`[worker] ${key}: dispatched (${summary}) ${result.detail}`);
     else log.error(`[worker] ${key}: dispatch FAILED (${summary}) ${result.detail}`);
 
+    if (result.runId) store?.setAgentRunId(incident.ref, result.runId);
     if (result.completion) store?.recordCompletion(incident.ref, result.completion, now());
     if (!cfg.dryRun) await followUp(incident, result);
   }
@@ -155,6 +161,23 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   /** Dashboard page + API. Returns false when the request is not a dashboard route. */
   function serveDashboard(req: IncomingMessage, res: ServerResponse, send: ReturnType<typeof jsonSender>, who = "internal"): boolean {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path === "/api/trigger-pipeline") {
+      if (req.method === "GET") send(200, trigger ? { enabled: true, dagId: trigger.dagId } : { enabled: false });
+      else if (req.method !== "POST") send(405, { error: "method not allowed" });
+      else if (!isSameOriginAction(req.headers, "run-pipeline")) send(403, { error: "forbidden" });
+      else if (!trigger) send(503, { ok: false, error: "Pipeline trigger is not configured (AIRFLOW_TRIGGER_PASSWORD)." });
+      else {
+        const fault = new URL(req.url ?? "/", "http://localhost").searchParams.get("fault") ?? "none";
+        trigger.trigger(fault).then(
+          (r) => {
+            log.info(`[dashboard] pipeline run requested by ${who} (fault=${fault.slice(0, 20)}): ${r.ok ? `started ${r.dagRunId}` : `${r.status} ${r.error}`}`);
+            send(r.ok ? 200 : r.status, r);
+          },
+          () => send(500, { error: "internal error" }),
+        );
+      }
+      return true;
+    }
     if (path === "/api/test-notification") {
       if (req.method !== "POST") send(405, { error: "method not allowed" });
       else if (!isSameOriginAction(req.headers)) send(403, { error: "forbidden" });
@@ -178,6 +201,10 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       handleDashboardApi(req, send);
       return true;
     }
+    if (path === "/api/costs") {
+      costs.get().then((d) => send(200, d), () => send(500, { error: "internal error" }));
+      return true;
+    }
     if (path === "/api/pipeline") {
       if (!pipeline) send(200, { enabled: false });
       else pipeline.get().then((d) => send(200, d), () => send(500, { error: "internal error" }));
@@ -192,6 +219,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, pending: aggregator.pendingCount });
       if (serveDashboard(req, res, send)) return;
       if (req.url === "/v1/openclaw/report") return await handleReport(req, send);
+      if (req.url === "/v1/openclaw/usage") return await handleUsage(req, send);
       if (req.url !== "/v1/airflow/failure") return send(404, { error: "not found" });
       if (req.method !== "POST") return send(405, { error: "method not allowed" });
 
@@ -222,7 +250,34 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     const days = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("days") ?? 30);
     if (!Number.isInteger(days) || days < 1 || days > 3650) return send(400, { error: "days must be an integer between 1 and 3650" });
     const since = now() - days * 24 * 3600 * 1000;
-    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now() }));
+    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now(), usage: store.usageSince(since), prices: cfg.modelPrices }));
+  }
+
+  /** Per-call token usage from the report-capture plugin's llm_output hook (signed like Airflow callbacks). */
+  async function handleUsage(req: IncomingMessage, send: ReturnType<typeof jsonSender>): Promise<void> {
+    if (req.method !== "POST") return send(405, { error: "method not allowed" });
+    const raw = await readBody(req, MAX_BODY_BYTES);
+    if (raw === undefined) return send(413, { error: "payload too large" });
+    const body = raw.toString("utf8");
+    if (!verifySignature(cfg.webhookSecret, body, header(req, TIMESTAMP_HEADER), header(req, SIGNATURE_HEADER))) {
+      return send(401, { error: "invalid signature" });
+    }
+    if (!store) return send(202, { recorded: false, reason: "incident log disabled" });
+    let u: Record<string, unknown>;
+    try {
+      u = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      return send(400, { error: "invalid JSON" });
+    }
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 1e9) : 0);
+    const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
+    const runId = str(u.runId, 100);
+    if (!runId || !/^[A-Za-z0-9_-]+$/.test(runId)) return send(400, { error: "missing or invalid runId" });
+    store.recordModelUsage(
+      { runId, sessionKey: validSessionKey(u.sessionKey), provider: str(u.provider, 60), model: str(u.model, 100), input: n(u.input), output: n(u.output), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite) },
+      now(),
+    );
+    return send(202, { recorded: true });
   }
 
   /** Report text captured by the report-capture OpenClaw plugin (signed like Airflow callbacks). */
@@ -235,7 +290,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       return send(401, { error: "invalid signature" });
     }
     if (!store) return send(202, { stored: false, reason: "feedback disabled" });
-    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown };
+    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown; sessionKey?: unknown };
     try {
       r = JSON.parse(body);
     } catch {
@@ -250,6 +305,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       sentAt: now(),
       messageId: typeof r.messageId === "string" ? r.messageId.slice(0, 100) : undefined,
       promptVersion: typeof r.promptVersion === "string" ? r.promptVersion.slice(0, 64) : undefined,
+      sessionKey: validSessionKey(r.sessionKey),
     });
     if (!stored) log.warn(`[worker] report for unknown ref ${r.ref} ignored`);
     return send(stored ? 200 : 404, { stored });
@@ -321,6 +377,11 @@ function jsonSender(res: ServerResponse) {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
   };
+}
+
+/** OpenClaw session keys look like "agent:pipeline-investigator:hook:<uuid>"; keep them short and printable. */
+function validSessionKey(v: unknown): string | undefined {
+  return typeof v === "string" && v.length <= 200 && /^[A-Za-z0-9:._@/-]+$/.test(v) ? v : undefined;
 }
 
 export function parseEvent(body: unknown): FailureEvent {

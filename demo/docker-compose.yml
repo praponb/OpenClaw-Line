@@ -49,7 +49,8 @@ services:
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
-      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin,investigator:viewer"
+      # dashboard: role "user" (may start DAG runs), used only by the worker's "Run pipeline" button.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin,investigator:viewer,dashboard:user"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
       # URL your browser uses for the Airflow UI (login redirects and log links).
       AIRFLOW__API__BASE_URL: ${AIRFLOW_PUBLIC_URL:-http://localhost:8080}
@@ -124,6 +125,13 @@ services:
       DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID:-}
       DATABRICKS_CLIENT_ID: ${DATABRICKS_READER_CLIENT_ID:-}
       DATABRICKS_CLIENT_SECRET: ${DATABRICKS_READER_CLIENT_SECRET:-}
+      # Dashboard "Run pipeline" button: Airflow account "dashboard" (role user). Off when unset.
+      AIRFLOW_TRIGGER_PASSWORD: ${AIRFLOW_TRIGGER_PASSWORD:-}
+      DASHBOARD_TRIGGER_DAG: ${DASHBOARD_TRIGGER_DAG:-databricks_daily_revenue}
+      # Cost tracking: model prices in USD per million tokens (unset = tokens only).
+      MODEL_PRICE_INPUT_PER_MTOK: ${MODEL_PRICE_INPUT_PER_MTOK:-}
+      MODEL_PRICE_OUTPUT_PER_MTOK: ${MODEL_PRICE_OUTPUT_PER_MTOK:-}
+      MODEL_PRICE_CACHE_READ_PER_MTOK: ${MODEL_PRICE_CACHE_READ_PER_MTOK:-}
     volumes:
       - ./.state/incidents:/incidents
       - ./.state/feedback:/data

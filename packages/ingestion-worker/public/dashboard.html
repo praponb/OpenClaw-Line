@@ -161,7 +161,19 @@
   <div id="toast" aria-live="polite"></div>
 
   <section class="card" id="dbx-card" style="margin-bottom:16px" hidden>
-    <h2>Databricks pipeline<a class="h2link" id="dbx-job" target="_blank" rel="noopener noreferrer"></a></h2>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0">Databricks pipeline<a class="h2link" id="dbx-job" target="_blank" rel="noopener noreferrer"></a></h2>
+      <div class="controls" id="dbx-run" hidden>
+        <select class="btn" id="dbx-fault" title="Run normally, or simulate broken upstream data to test the incident flow">
+          <option value="none">Normal run</option>
+          <option value="schema_drift">Test: schema drift (sends a LINE incident)</option>
+          <option value="null_amounts">Test: null amounts (sends a LINE incident)</option>
+          <option value="empty">Test: empty delivery (sends a LINE incident)</option>
+        </select>
+        <button class="btn" id="dbx-run-btn" title="Start the Airflow DAG that runs the Databricks job">▶ Run pipeline</button>
+      </div>
+    </div>
+    <div id="dbx-toast" aria-live="polite"></div>
     <div id="dbx-latest"></div>
     <div class="flow" id="dbx-flow"></div>
     <h2 style="margin-top:20px">Recent runs</h2>
@@ -180,6 +192,11 @@
   </section>
 
   <section class="grid kpis" id="kpis"></section>
+
+  <section class="card" style="margin-bottom:16px">
+    <h2>Costs</h2>
+    <div class="grid kpis" id="costs" style="margin-bottom:0"></div>
+  </section>
 
   <section class="grid charts">
     <div class="card">
@@ -304,6 +321,33 @@
     });
   }
 
+  function fmtTokens(n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n); }
+  function fmtUsd(v) { return v === null || v === undefined ? "–" : v < 0.01 && v > 0 ? "<$0.01" : "$" + v.toFixed(2); }
+  var costsData = null, dashData = null;
+  function costTile(label, value, hint) { return h("div", { class: "card kpi", style: "box-shadow:none;background:var(--surface-2);border:0" }, h("div", { class: "label" }, label), h("div", { class: "value", style: "font-size:22px" }, value), h("div", { class: "hint" }, hint)); }
+  function renderCosts() {
+    var host = clear($("costs"));
+    if (dashData) {
+      var m = dashData.modelCost, rangeLabel = state.days === 1 ? "24h" : state.days + "d";
+      var tokens = fmtTokens(m.input + m.cacheRead) + " in · " + fmtTokens(m.output) + " out";
+      host.appendChild(m.incidents
+        ? costTile("Model, last " + rangeLabel, m.priced ? fmtUsd(m.usd) : tokens, (m.priced ? tokens + " · " : "") + m.incidents + " incident" + (m.incidents === 1 ? "" : "s") + (m.priced ? " · avg " + fmtUsd(m.avgUsd) : " · set MODEL_PRICE_* for USD"))
+        : costTile("Model, last " + rangeLabel, "–", "token usage is recorded for new incidents"));
+    }
+    var c = costsData;
+    if (!c) return;
+    var month = new Date(c.monthStart + 7 * 3600e3).toLocaleDateString("en-GB", { timeZone: "UTC", month: "long" });
+    if (c.line) host.appendChild(c.line.error
+      ? costTile("LINE, " + month, "–", "quota unavailable: " + c.line.error)
+      : costTile("LINE, " + month, c.line.used + (c.line.limit !== null ? " / " + c.line.limit : ""), c.line.limit !== null ? "messages used of the plan's monthly quota (LINE's count)" : "messages this month (no quota limit)"));
+    if (c.databricks) host.appendChild(c.databricks.error
+      ? costTile("Databricks, " + month, "–", "unavailable: " + c.databricks.error)
+      : costTile("Databricks, " + month, Math.round(c.databricks.computeSeconds / 60) + " min", c.databricks.runs + " runs (" + c.databricks.succeeded + " ok, " + c.databricks.failed + " failed) · serverless compute time; USD is on the Databricks bill"));
+  }
+  function loadCosts() {
+    fetch("api/costs", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) { costsData = d; renderCosts(); }).catch(function () {});
+  }
+
   function renderTriageChart(d) {
     var host = clear($("triage-chart"));
     var pts = d.incidents.filter(function (i) { return i.triageSeconds !== null; }).slice().reverse();
@@ -417,6 +461,8 @@
       h("dt", null, "Run"), h("dd", { class: "mono" }, i.runId),
       h("dt", null, "Model"), h("dd", null, i.model || "–"),
       h("dt", null, "Prompt"), h("dd", { class: "mono" }, i.promptVersion || "–"),
+      i.usage ? [h("dt", null, "Tokens"), h("dd", null, fmtTokens(i.usage.input + i.usage.cacheRead) + " in (" + fmtTokens(i.usage.cacheRead) + " cached) · " + fmtTokens(i.usage.output) + " out · " + i.usage.calls + " model calls")] : null,
+      i.costUsd !== null ? [h("dt", null, "Model cost"), h("dd", null, fmtUsd(i.costUsd) + " (estimate)")] : null,
       i.deliveryError ? [h("dt", null, "Delivery"), h("dd", null, i.deliveryError)] : null,
       i.replyDisposition && i.replyDisposition !== "visible" ? [h("dt", null, "Reply"), h("dd", null, i.replyDisposition)] : null,
       h("dt", null, "Feedback"), h("dd", null, voteCells(i)),
@@ -493,6 +539,27 @@
     });
   }
 
+  function initRunButton() {
+    fetch("api/trigger-pipeline", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : { enabled: false }; }).then(function (d) {
+      $("dbx-run").hidden = !d.enabled;
+      if (d.enabled) $("dbx-run-btn").title = "Start the Airflow DAG " + d.dagId + ", which runs the Databricks job";
+    }).catch(function () {});
+  }
+  $("dbx-run-btn").addEventListener("click", function () {
+    var btn = $("dbx-run-btn"), fault = $("dbx-fault").value, toast = clear($("dbx-toast"));
+    btn.disabled = true; btn.textContent = "Starting…";
+    fetch("api/trigger-pipeline?fault=" + encodeURIComponent(fault), { method: "POST", headers: { "X-Dashboard-Action": "run-pipeline" }, cache: "no-store" })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: "HTTP " + r.status }; }); })
+      .then(function (d) {
+        if (d.ok) {
+          toast.appendChild(h("div", { class: "banner ok" }, "Started " + (d.fault === "none" ? "a normal run" : "a test run with " + d.fault) + " (" + d.dagRunId + "). Progress appears below in about a minute" + (d.fault === "none" ? "." : "; the incident report will arrive in LINE.") + " " + d.remainingToday + " dashboard runs left today."));
+          setTimeout(loadPipeline, 15000); setTimeout(loadPipeline, 45000);
+        } else toast.appendChild(h("div", { class: "banner err" }, "Not started: " + (d.error || "unknown error")));
+      })
+      .catch(function (e) { toast.appendChild(h("div", { class: "banner err" }, "Not started: " + e.message)); })
+      .then(function () { setTimeout(function () { btn.disabled = false; btn.textContent = "▶ Run pipeline"; }, 5000); });
+  });
+
   function loadPipeline() {
     fetch("api/pipeline", { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
@@ -502,6 +569,7 @@
 
   function render(d) {
     state.data = d;
+    dashData = d; renderCosts();
     renderFlow(d); renderKpis(d); renderTriageChart(d); renderVersions(d); renderReasons(d); renderRows(d);
   }
 
@@ -512,13 +580,13 @@
 
   function load() {
     $("updated").textContent = "Loading…";
-    loadPipeline();
+    loadPipeline(); loadCosts();
     fetch("api/dashboard?days=" + state.days, { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (d) {
         if (!d.enabled) {
           banner("Feedback is disabled: set LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET for the ingestion worker to record incidents.", false);
-          render({ funnel: { investigated: 0, completed: 0, delivered: 0, fallback: 0, rated: 0 }, votes: { up: 0, down: 0, misleading: 0, total: 0, helpfulRate: null }, triage: { medianSeconds: null, p90Seconds: null }, versions: [], reasons: [], incidents: [] });
+          render({ funnel: { investigated: 0, completed: 0, delivered: 0, fallback: 0, rated: 0 }, votes: { up: 0, down: 0, misleading: 0, total: 0, helpfulRate: null }, triage: { medianSeconds: null, p90Seconds: null }, mttr: { medianSeconds: null, p90Seconds: null, resolved: 0, open: 0 }, modelCost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, incidents: 0, usd: null, avgUsd: null, priced: false }, versions: [], reasons: [], incidents: [] });
         } else { banner(null); render(d); }
         $("updated").textContent = "Updated " + new Date().toLocaleTimeString("en-GB", { timeZone: TZ }) + " (Bangkok)";
         $("updated").title = "Auto-refresh every " + REFRESH_MS / 1000 + "s";
@@ -557,7 +625,7 @@
   document.addEventListener("visibilitychange", function () { if (!document.hidden) load(); });
   window.addEventListener("hashchange", function () { openIncident(decodeURIComponent(location.hash.slice(1)) || null, true); });
 
-  load(); schedule();
+  load(); schedule(); initRunButton();
 })();
 </script>
 </body>

@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { REASONS, RATINGS, type Rating, type Reason } from "./feedback.js";
 import { quantile } from "./feedbackReport.js";
-import type { FeedbackRow, IncidentRow } from "./feedbackStore.js";
+import type { FeedbackRow, IncidentRow, ModelUsage } from "./feedbackStore.js";
+
+export type ModelPrices = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+/** USD for one incident's tokens; `input` from the provider includes no cached tokens. */
+export function usageCostUsd(u: Pick<ModelUsage, "input" | "output" | "cacheRead" | "cacheWrite">, p: ModelPrices): number {
+  return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1e6;
+}
 
 /**
  * Live dashboard (internal listener only): JSON for /api/dashboard plus the
@@ -31,6 +38,9 @@ export type DashboardIncident = {
   resolvedAt: number | null;
   resolution: string | null;
   resolveSeconds: number | null;
+  /** Investigator model usage for this incident (null until token usage arrives) and its USD estimate (null without prices). */
+  usage: ModelUsage | null;
+  costUsd: number | null;
   votes: Record<Rating, number>;
   reasons: { reason: Reason; label: string; count: number }[];
   reportText: string | null;
@@ -43,6 +53,7 @@ export type DashboardData = {
   funnel: { investigated: number; completed: number; delivered: number; fallback: number; rated: number };
   votes: Record<Rating, number> & { total: number; helpfulRate: number | null };
   triage: { medianSeconds: number | null; p90Seconds: number | null };
+  modelCost: { input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; incidents: number; usd: number | null; avgUsd: number | null; priced: boolean };
   mttr: { medianSeconds: number | null; p90Seconds: number | null; resolved: number; open: number };
   versions: { version: string; firstSeenAt: number | null; incidents: number; votes: Record<Rating, number>; helpfulRate: number | null }[];
   reasons: { reason: Reason; label: string; count: number }[];
@@ -56,7 +67,12 @@ const helpful = (v: Record<Rating, number>): number | null => {
   return total ? v.up / total : null;
 };
 
-export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackRow[], opts: { days: number; now: number }): DashboardData {
+export function buildDashboardData(
+  incidents: IncidentRow[],
+  feedback: FeedbackRow[],
+  opts: { days: number; now: number; usage?: Map<string, ModelUsage>; prices?: ModelPrices | null },
+): DashboardData {
+  const prices = opts.prices ?? null;
   const byRef = new Map<string, FeedbackRow[]>();
   for (const f of feedback) byRef.set(f.ref, [...(byRef.get(f.ref) ?? []), f]);
 
@@ -86,6 +102,8 @@ export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackR
       reportSentAt: i.report_sent_at,
       completedAt: i.completed_at,
       triageSeconds: state === "delivered" && i.first_seen_at && reportAt ? Math.round((reportAt - i.first_seen_at) / 100) / 10 : null,
+      usage: opts.usage?.get(i.ref) ?? null,
+      costUsd: prices && opts.usage?.get(i.ref) ? usageCostUsd(opts.usage.get(i.ref)!, prices) : null,
       resolvedAt: i.resolved_at,
       resolution: i.resolution,
       resolveSeconds: i.resolved_at && (i.first_seen_at ?? i.dispatched_at) ? Math.max(0, Math.round((i.resolved_at - (i.first_seen_at ?? i.dispatched_at)!) / 1000)) : null,
@@ -136,6 +154,22 @@ export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackR
     },
     votes: { ...votes, total: votes.up + votes.down + votes.misleading, helpfulRate: helpful(votes) },
     triage: { medianSeconds: round(quantile(triage, 0.5)), p90Seconds: round(quantile(triage, 0.9)) },
+    modelCost: (() => {
+      const used = rows.filter((r) => r.usage);
+      const sum = (k: "input" | "output" | "cacheRead" | "cacheWrite" | "calls") => used.reduce((a, r) => a + r.usage![k], 0);
+      const usd = prices ? used.reduce((a, r) => a + (r.costUsd ?? 0), 0) : null;
+      return {
+        input: sum("input"),
+        output: sum("output"),
+        cacheRead: sum("cacheRead"),
+        cacheWrite: sum("cacheWrite"),
+        calls: sum("calls"),
+        incidents: used.length,
+        usd,
+        avgUsd: usd !== null && used.length ? usd / used.length : null,
+        priced: prices !== null,
+      };
+    })(),
     mttr: {
       medianSeconds: round(quantile(resolveTimes, 0.5)),
       p90Seconds: round(quantile(resolveTimes, 0.9)),
