@@ -14,6 +14,10 @@ dbutils.widgets.text("run_date", "")
 
 from pyspark.sql import functions as F
 
+from quality import null_field_message, schema_drift_message, unexpected_fields
+
+EXPECTED_FIELDS = ["id", "type", "created", "charge_id", "amount", "currency", "customer"]
+
 catalog = dbutils.widgets.get("catalog")
 run_date = dbutils.jobs.taskValues.get(
     taskKey="land_stripe_events", key="run_date", debugValue=dbutils.widgets.get("run_date")
@@ -34,22 +38,17 @@ if total == 0:
         "the upstream delivery is empty or was not ingested."
     )
 
+# Failure messages reach the model provider, LINE and the dashboard: field names and
+# counts only, never data values (docs/data-residency.md).
 rescued = day.where(F.col("_rescued_data").isNotNull())
 n_rescued = rescued.count()
 if n_rescued:
-    sample = rescued.select("_rescued_data").first()[0]
-    raise ValueError(
-        f"Schema drift in {landed_file}: {n_rescued}/{total} events have fields outside the expected schema "
-        f"(id, type, created, charge_id, amount, currency, customer). Sample _rescued_data: {sample[:300]}"
-    )
+    fields = unexpected_fields(r[0] for r in rescued.select("_rescued_data").limit(1000).collect())
+    raise ValueError(schema_drift_message(landed_file, n_rescued, total, fields, EXPECTED_FIELDS))
 
 n_null_amount = day.where(F.col("amount").isNull()).count()
 if n_null_amount:
-    sample_ids = [r.id for r in day.where(F.col("amount").isNull()).select("id").limit(5).collect()]
-    raise ValueError(
-        f"{n_null_amount}/{total} events in {landed_file} have a null amount (e.g. {', '.join(sample_ids)}); "
-        "refusing to publish partial revenue."
-    )
+    raise ValueError(null_field_message(landed_file, "amount", n_null_amount, total))
 
 known = day.where(F.col("type").isin("charge.succeeded", "charge.refunded"))
 skipped = total - known.count()

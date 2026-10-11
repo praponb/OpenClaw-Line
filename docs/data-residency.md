@@ -11,9 +11,9 @@ This is an engineering review, not legal advice. Use it as input for a Thai PDPA
 | # | Finding | Severity |
 |---|---|---|
 | 1 | **Databricks processes the pipeline in India.** The workspace's Unity Catalog metastore is `asia-south1` (Mumbai). Raw files and managed tables are stored in Bangkok (`asia-southeast3`), but every read and write happens on compute in Mumbai. | High for real data |
-| 2 | **Pipeline error messages carry data values.** Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
+| 2 | ~~**Pipeline error messages carry data values.**~~ ✅ Fixed 2026-10-11: silver now reports field names and counts only. Previously: Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
 | 3 | **Evidence sent to the model provider leaves Thailand.** Sanitized logs, errors, diffs and table names go to Moonshot's international API (`api.moonshot.ai`). Processing location, retention and training use are ❓. | Medium |
-| 4 | **The sanitizer misses Thai identifiers.** It masks secrets, emails and card numbers, but not Thai national IDs, phone numbers, names or addresses. | Medium |
+| 4 | **The sanitizer misses some Thai personal data.** Thai national IDs and phone numbers are masked since 2026-10-11; names, addresses and bank account numbers still aren't. | Medium (was: no Thai identifiers at all) |
 | 5 | **Nothing is ever deleted.** No retention is set for the incident log (report text), Airflow task logs, GCS landing files or Databricks tables. | Medium |
 | 6 | **Credentials are well scoped**: all least-privilege and read-only except the two "write" accounts (Airflow runner, dashboard trigger), which can only start runs. Old `.env` backups with secrets remain on the server. | Low |
 
@@ -75,9 +75,11 @@ OAuth secrets for the Databricks service principals expire on 2027-10-11.
 
 ## Sanitizer coverage
 
-`packages/shared/src/sanitize.ts` masks these before evidence reaches the model, the logs or LINE: private keys, connection-string passwords, bearer tokens, JWTs, AWS keys, Stripe keys, GitHub/GitLab/Slack tokens, Anthropic and OpenAI-style keys, Databricks PATs and OAuth secrets, `key=value` secrets, emails, and card numbers (Luhn-checked).
+`packages/shared/src/sanitize.ts` masks these before evidence reaches the model, the logs or LINE: private keys, connection-string passwords, bearer tokens, JWTs, AWS keys, Stripe keys, GitHub/GitLab/Slack tokens, Anthropic and OpenAI-style keys, Databricks PATs and OAuth secrets, `key=value` secrets, emails, card numbers (Luhn plus a real brand prefix and length; Luhn alone used to mask about 1 in 10 Databricks run ids), Thai national IDs (13 digits, plain or `1-2345-67890-12-3`, check digit validated), and Thai phone numbers (`+66…`, mobile `0[689]x-xxx-xxxx`, landlines `02-xxx-xxxx` / `0xx-xxx-xxx`).
 
-**Not covered:** Thai national ID numbers (13 digits with check digit), phone numbers (`+66…`, `0[689]…`), names, addresses, bank account numbers, and any free-text field values that tasks print or put into exceptions.
+A checksum-valid 13-digit number that isn't a Thai ID (e.g. some epoch-millisecond timestamps) is masked too; privacy wins over a lost timestamp.
+
+**Not covered:** names, addresses, bank account numbers, and other free-text values that tasks print or put into exceptions.
 
 ## Recommendations
 
@@ -87,8 +89,8 @@ In order. Items 1–4 should happen before real production data is connected.
    - (a) Accept Mumbai and record it as a cross-border transfer.
    - (b) Recreate the workspace in `asia-southeast1` (Singapore). That's closer to Bangkok and to the Cloudflare edges, with lower cross-region traffic cost; the bundle redeploys unchanged apart from the host.
    - Either way, keep the GCS bucket in Bangkok for data at rest.
-2. **Keep data values out of pipeline errors.** Change `databricks/src/03_silver_transactions.py` to report **field names only** (e.g. "unexpected field `amount_cents`") and counts, not sample rows or event ids. Apply the same rule to any production task code: exceptions travel to the model, LINE and the dashboard.
-3. **Extend the sanitizer for Thai personal data:** national ID (13 digits, validated check digit), Thai phone numbers, and bank account formats you use, with tests like the existing ones.
+2. ✅ **Keep data values out of pipeline errors.** Done for the lakehouse job (`databricks/src/quality.py`: "Unexpected fields: amount_cents", counts only). Apply the same rule to any production task code: exceptions travel to the model, LINE and the dashboard.
+3. ✅ **Extend the sanitizer for Thai personal data:** national ID and phone numbers are done. Add bank account formats you use when real data arrives.
 4. **Confirm Moonshot's terms for API data** ❓: processing location, retention, whether it's used for training, and whether a data processing agreement is available. If they don't fit, the model is a one-line config change (`OPENCLAW_MODEL`) to a provider with regional processing or zero-retention terms.
 5. **Set retention periods:**
    - incident log report text, e.g. 180 days, via a small prune job in the worker

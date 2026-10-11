@@ -17,6 +17,14 @@ describe("sanitize", () => {
     ["databricks pat", "using dapi0123456789abcdef0123456789abcdef-2 for auth", "[REDACTED:databricks_token]", "dapi0123456789"],
     ["databricks oauth secret", "secret dose0123456789abcdef0123456789abcdef", "[REDACTED:databricks_token]", "dose0123456789"],
     ["card number", "card 4242 4242 4242 4242 declined", "[REDACTED:card_number]", "4242 4242"],
+    ["mastercard 2-series", "pan 2223003122003222 used", "[REDACTED:card_number]", "2223003122003222"],
+    ["amex", "amex 378282246310005 ok", "[REDACTED:card_number]", "378282246310005"],
+    ["thai national id", "customer citizen_id=1103700123458 failed KYC", "[REDACTED:thai_national_id]", "1103700123458"],
+    ["thai national id, formatted", "id 3-1015-00987-65-8 rejected", "[REDACTED:thai_national_id]", "3-1015-00987-65-8"],
+    ["thai mobile", "call 081-234-5678 now", "[REDACTED:thai_phone]", "081-234-5678"],
+    ["thai mobile, plain", "phone:0912345678,", "[REDACTED:thai_phone]", "0912345678"],
+    ["thai international", "contact +66 81 234 5678", "[REDACTED:thai_phone]", "+66 81 234 5678"],
+    ["bangkok landline", "office 02-123-4567", "[REDACTED:thai_phone]", "02-123-4567"],
   ])("redacts %s", (_name, input, expected, secret) => {
     const out = sanitize(input);
     expect(out).toContain(expected);
@@ -26,6 +34,12 @@ describe("sanitize", () => {
   it("keeps evidence that is not secret", () => {
     const line = `KeyError: 'payment_intent_id' in /opt/airflow/dags/stripe_ingest/extract_stripe.py, line 36 run_id=scheduled__2026-10-10T02:00:00+00:00`;
     expect(sanitize(line)).toBe(line);
+  });
+
+  it("keeps ids, run ids and amounts that are not Thai IDs or phone numbers", () => {
+    // 907227724233005, 794488822565591 and 205995526214147 pass Luhn: real Databricks run ids that were masked before.
+    const text = "run 907227724233005 run 794488822565591 run 205995526214147 job 954973835355130 amount 33800 id 1103700123459 evt_20261011_c00012 ch_20261011_00081 v2.1.296";
+    expect(sanitize(text)).toBe(text); // 1103700123459 has a wrong check digit
   });
 
   it("does not redact non-Luhn digit runs such as ids", () => {

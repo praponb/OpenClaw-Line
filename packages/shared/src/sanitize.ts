@@ -61,12 +61,52 @@ const RULES: Rule[] = [
     pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
   {
-    // 13-19 digit runs (optionally space/dash separated) that pass Luhn.
+    // Thai national ID: 13 digits, first 1-8, optionally as 1-2345-67890-12-3, with a
+    // valid check digit. Runs before card_number (13 digits can also pass Luhn).
+    // A checksum-valid 13-digit number (about 1 in 10, e.g. some epoch-ms timestamps)
+    // is masked too: privacy wins over a lost timestamp.
+    kind: "thai_national_id",
+    pattern: /(?<![\d-])[1-8][ -]?\d{4}[ -]?\d{5}[ -]?\d{2}[ -]?\d(?![\d-])/g,
+    replace: (m) => (thaiIdValid(m.replace(/[ -]/g, "")) ? marker("thai_national_id") : m),
+  },
+  {
+    // Thai phone numbers: +66 then 8-9 digits; mobile 0[689]x-xxx-xxxx; landline 02-xxx-xxxx / 0xx-xxx-xxx.
+    kind: "thai_phone",
+    pattern: /(?<![\w+])(?:\+66[ -]?\d(?:[ -]?\d){7,8}|0[689]\d[ -]?\d{3}[ -]?\d{4}|02[ -]?\d{3}[ -]?\d{4}|0[3-7]\d[ -]?\d{3}[ -]?\d{3})(?![\d-])/g,
+  },
+  {
+    // 13-19 digit runs (optionally space/dash separated) that pass Luhn AND match a real
+    // card brand's prefix and length. Luhn alone masked about 1 in 10 Databricks run/job
+    // ids (15 digits), removing them from the evidence.
     kind: "card_number",
     pattern: /\b(?:\d[ -]?){12,18}\d\b/g,
-    replace: (m) => (luhnValid(m.replace(/[ -]/g, "")) ? marker("card_number") : m),
+    replace: (m) => {
+      const digits = m.replace(/[ -]/g, "");
+      return cardBrandLike(digits) && luhnValid(digits) ? marker("card_number") : m;
+    },
   },
 ];
+
+/** Visa, Mastercard, Amex, Discover, JCB and UnionPay prefixes with their lengths. */
+function cardBrandLike(d: string): boolean {
+  const n = d.length;
+  const p4 = Number(d.slice(0, 4));
+  if (d.startsWith("4")) return n === 13 || n === 16 || n === 19; // Visa
+  if (/^5[1-5]/.test(d) || (p4 >= 2221 && p4 <= 2720)) return n === 16; // Mastercard
+  if (/^3[47]/.test(d)) return n === 15; // Amex
+  if (p4 >= 3528 && p4 <= 3589) return n >= 16 && n <= 19; // JCB
+  if (/^(6011|65|64[4-9])/.test(d)) return n >= 16 && n <= 19; // Discover
+  if (d.startsWith("62")) return n >= 16 && n <= 19; // UnionPay
+  return false;
+}
+
+/** Check digit = (11 - (sum of the first 12 digits weighted 13..2) mod 11) mod 10. */
+function thaiIdValid(digits: string): boolean {
+  if (!/^[1-8]\d{12}$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += (digits.charCodeAt(i) - 48) * (13 - i);
+  return (11 - (sum % 11)) % 10 === digits.charCodeAt(12) - 48;
+}
 
 function luhnValid(digits: string): boolean {
   if (digits.length < 13 || digits.length > 19) return false;
