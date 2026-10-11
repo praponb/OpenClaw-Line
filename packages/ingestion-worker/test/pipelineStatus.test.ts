@@ -21,7 +21,7 @@ const runs = {
       job_parameters: [{ name: "run_date", value: "2026-10-11" }, { name: "inject_fault", value: "schema_drift" }, { name: "catalog", default: "lakehouse" }],
       tasks: [
         { task_key: "silver_transactions", depends_on: [{ task_key: "bronze_ingest" }], state: { life_cycle_state: "BLOCKED" } },
-        { task_key: "land_stripe_events", start_time: 1_000, end_time: 2_000, state: { life_cycle_state: "TERMINATED", result_state: "SUCCESS" } },
+        { task_key: "land_stripe_events", start_time: 1_000, end_time: 2_000, setup_duration: 300_000, execution_duration: 39_000, state: { life_cycle_state: "TERMINATED", result_state: "SUCCESS" } },
         { task_key: "bronze_ingest", attempt_number: 0, depends_on: [{ task_key: "land_stripe_events" }], state: { result_state: "FAILED" } },
         { task_key: "bronze_ingest", attempt_number: 1, start_time: 2_000, depends_on: [{ task_key: "land_stripe_events" }], state: { life_cycle_state: "RUNNING" } },
       ],
@@ -53,6 +53,8 @@ describe("PipelineStatus", () => {
       ["bronze_ingest", "RUNNING"],
       ["silver_transactions", "BLOCKED"],
     ]);
+    expect(latest!.tasks[0]).toMatchObject({ waitSeconds: 300, runSeconds: 39 });
+    expect(latest!.tasks[2]).toMatchObject({ waitSeconds: null, runSeconds: null }); // never started
     expect(older).toMatchObject({ runId: "1", state: "SUCCESS", durationSeconds: 400, url: null, runDate: null });
   });
 

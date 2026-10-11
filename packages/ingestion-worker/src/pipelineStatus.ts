@@ -8,7 +8,15 @@ import { DatabricksClient, sanitize } from "@openclaw-line/shared";
 
 export type PipelineStatusConfig = { host: string; clientId: string; clientSecret: string; jobId: string };
 
-export type PipelineTask = { key: string; state: string; startedAt: number | null; endedAt: number | null };
+export type PipelineTask = {
+  key: string;
+  state: string;
+  startedAt: number | null;
+  endedAt: number | null;
+  /** Time spent waiting for compute (queue + setup) and doing work; null until Databricks reports them. */
+  waitSeconds: number | null;
+  runSeconds: number | null;
+};
 
 export type PipelineRun = {
   runId: string;
@@ -34,6 +42,9 @@ type ApiTask = {
   end_time?: number;
   depends_on?: { task_key: string }[];
   state?: { life_cycle_state?: string; result_state?: string };
+  queue_duration?: number;
+  setup_duration?: number;
+  execution_duration?: number;
 };
 
 type ApiRun = {
@@ -105,7 +116,21 @@ function toRun(r: ApiRun): PipelineRun {
     fault: param("inject_fault"),
     trigger: r.trigger ?? null,
     url: r.run_page_url && /^https:\/\//.test(r.run_page_url) ? r.run_page_url : null,
-    tasks: orderTasks(latestAttempts(r.tasks ?? [])).map((t) => ({ key: t.task_key, state: stateOf(t.state), startedAt: ms(t.start_time), endedAt: ms(t.end_time) })),
+    tasks: orderTasks(latestAttempts(r.tasks ?? [])).map(toTask),
+  };
+}
+
+function toTask(t: ApiTask): PipelineTask {
+  const wait = (t.queue_duration ?? 0) + (t.setup_duration ?? 0);
+  const reported = t.execution_duration !== undefined || t.setup_duration !== undefined || t.queue_duration !== undefined;
+  const ran = reported && (wait > 0 || (t.execution_duration ?? 0) > 0);
+  return {
+    key: t.task_key,
+    state: stateOf(t.state),
+    startedAt: ms(t.start_time),
+    endedAt: ms(t.end_time),
+    waitSeconds: ran ? Math.round(wait / 1000) : null,
+    runSeconds: ran ? Math.round((t.execution_duration ?? 0) / 1000) : null,
   };
 }
 

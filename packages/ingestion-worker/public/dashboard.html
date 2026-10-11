@@ -437,6 +437,14 @@
   function dbx(stateName) { return DBX[stateName] || [stateName.charAt(0) + stateName.slice(1).toLowerCase().replace(/_/g, " "), "idle"]; }
   function dbxBadge(stateName) { var m = dbx(stateName); return h("span", { class: "badge " + BADGE[m[1]] }, m[0]); }
   function elapsed(start, end) { return start ? fmtSecs(((end || Date.now()) - start) / 1000) + (end ? "" : " so far") : "–"; }
+  // States where the task never executed (an upstream task failed, or it was skipped).
+  var NOT_RUN = { UPSTREAM_FAILED: 1, UPSTREAM_CANCELED: 1, SKIPPED: 1, EXCLUDED: 1, BLOCKED: 1, WAITING: 1 };
+  function taskTiming(t) {
+    if (NOT_RUN[t.state]) return "not run";
+    if (!t.startedAt) return "not started";
+    if (!t.endedAt || t.runSeconds === null) return fmtClock(t.startedAt) + " · " + elapsed(t.startedAt, t.endedAt);
+    return fmtClock(t.startedAt) + " · ran " + fmtSecs(t.runSeconds) + (t.waitSeconds >= 5 ? " · waited " + fmtSecs(t.waitSeconds) : "");
+  }
   function runLink(r, label) { return r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, label) : null; }
 
   function renderPipeline(p) {
@@ -459,7 +467,7 @@
       flow.appendChild(h("div", { class: "step s-" + m[1] },
         h("div", { class: "k" }, t.key),
         dbxBadge(t.state),
-        h("div", { class: "t", style: "margin-top:6px;color:var(--faint)" }, t.startedAt ? fmtClock(t.startedAt) + " · " + elapsed(t.startedAt, t.endedAt) : "not started")));
+        h("div", { class: "t", style: "margin-top:6px;color:var(--faint)", title: t.waitSeconds !== null ? "waiting for compute: " + fmtSecs(t.waitSeconds) + ", running: " + fmtSecs(t.runSeconds) : null }, taskTiming(t))));
     });
     p.runs.forEach(function (run) {
       rows.appendChild(h("tr", null,
