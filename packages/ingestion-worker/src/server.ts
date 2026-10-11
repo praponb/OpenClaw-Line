@@ -7,6 +7,7 @@ import { FailureAggregator, selectRootTask } from "./dedupe.js";
 import type { DispatchResult, Dispatcher } from "./dispatcher.js";
 import { AccessVerifier, accessToken } from "./cfAccess.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
+import { PipelineStatus } from "./pipelineStatus.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
 import { FeedbackStore } from "./feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "./incidentRef.js";
@@ -41,6 +42,7 @@ export type WorkerDeps = {
   store?: FeedbackStore;
   now?: () => number;
   accessVerifier?: Pick<AccessVerifier, "verify">;
+  pipeline?: Pick<PipelineStatus, "get">;
 };
 
 export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: WorkerDeps = {}): Worker {
@@ -50,6 +52,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const fb = cfg.feedback;
   const store = deps.store ?? (fb ? new FeedbackStore(fb.dbPath) : undefined);
   const line = deps.line ?? (fb ? new LineClient(fb.channelAccessToken, { baseUrl: fb.lineApiBaseUrl }) : undefined);
+  const pipeline = deps.pipeline ?? (cfg.databricks ? new PipelineStatus(cfg.databricks, { now }) : undefined);
 
   async function investigate(key: string, events: FailureEvent[]): Promise<void> {
     const first = events[0]!;
@@ -155,6 +158,11 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     }
     if (path === "/api/dashboard") {
       handleDashboardApi(req, send);
+      return true;
+    }
+    if (path === "/api/pipeline") {
+      if (!pipeline) send(200, { enabled: false });
+      else pipeline.get().then((d) => send(200, d), () => send(500, { error: "internal error" }));
       return true;
     }
     return false;

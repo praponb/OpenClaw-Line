@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
-import { clearDatabricksTokenCache, getDatabricksRunError } from "../src/tools/databricksRun.js";
+import { clearDatabricksTokenCache } from "@openclaw-line/shared";
+import { getDatabricksRunError } from "../src/tools/databricksRun.js";
 
 const env = { DATABRICKS_HOST: "https://dbx.example/", DATABRICKS_CLIENT_ID: "app-id", DATABRICKS_CLIENT_SECRET: "s3cret" };
 

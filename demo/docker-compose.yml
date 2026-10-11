@@ -110,6 +110,12 @@ services:
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       DASHBOARD_ALLOWED_EMAILS: ${DASHBOARD_ALLOWED_EMAILS:-}
+      # Databricks job status on the dashboard: the investigator's read-only
+      # service principal (CAN_VIEW on the job). Off unless all four are set.
+      DATABRICKS_HOST: ${DATABRICKS_HOST:-}
+      DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID:-}
+      DATABRICKS_CLIENT_ID: ${DATABRICKS_READER_CLIENT_ID:-}
+      DATABRICKS_CLIENT_SECRET: ${DATABRICKS_READER_CLIENT_SECRET:-}
     volumes:
       - ./.state/incidents:/incidents
       - ./.state/feedback:/data

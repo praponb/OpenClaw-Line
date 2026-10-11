@@ -1,5 +1,5 @@
 import { Type, type Static } from "typebox";
-import { filterLog, sanitize } from "@openclaw-line/shared";
+import { DatabricksClient, filterLog, sanitize } from "@openclaw-line/shared";
 import type { ResolvedConfig } from "../config.js";
 import { toolError } from "./result.js";
 
@@ -43,16 +43,9 @@ const MAX_TASKS_WITH_OUTPUT = 3;
 /** Only GET endpoints of the Jobs API; the one POST is the OAuth client-credentials token exchange. */
 export async function getDatabricksRunError(params: DatabricksRunParams, cfg: ResolvedConfig, deps: Deps = {}): Promise<string> {
   if (!cfg.databricks) return toolError("Databricks is not configured (DATABRICKS_HOST / DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET unset).");
-  const doFetch = deps.fetch ?? fetch;
-  const { host } = cfg.databricks;
+  const client = new DatabricksClient({ ...cfg.databricks, fetch: deps.fetch, now: deps.now });
+  const get = <T>(path: string) => client.get<T>(path);
   try {
-    const token = await getToken(cfg.databricks, doFetch, deps.now ?? Date.now);
-    const get = async <T>(path: string): Promise<T> => {
-      const res = await doFetch(`${host}${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) throw new Error(`Databricks API ${res.status} on ${path.split("?")[0]}: ${(await res.text()).slice(0, 200)}`);
-      return (await res.json()) as T;
-    };
-
     const run = await get<JobRun>(`/api/2.2/jobs/runs/get?run_id=${params.run_id}`);
     const tasks = latestAttempts(run.tasks ?? []);
     const lines = [
@@ -101,31 +94,4 @@ function latestAttempts(tasks: TaskRun[]): TaskRun[] {
 
 function iso(ms: number | undefined): string {
   return ms ? new Date(ms).toISOString() : "n/a";
-}
-
-const tokenCache = new Map<string, { token: string; expiresAt: number }>();
-
-async function getToken(db: NonNullable<ResolvedConfig["databricks"]>, doFetch: typeof fetch, now: () => number): Promise<string> {
-  const key = `${db.host}|${db.clientId}`;
-  const cached = tokenCache.get(key);
-  if (cached && cached.expiresAt > now() + 60_000) return cached.token;
-  const res = await doFetch(`${db.host}/oidc/v1/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${db.clientId}:${db.clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials&scope=all-apis",
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`Databricks OAuth token request failed with HTTP ${res.status}`);
-  const body = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!body.access_token) throw new Error("Databricks OAuth response had no access_token");
-  tokenCache.set(key, { token: body.access_token, expiresAt: now() + (body.expires_in ?? 3600) * 1000 });
-  return body.access_token;
-}
-
-/** Test hook. */
-export function clearDatabricksTokenCache(): void {
-  tokenCache.clear();
 }
