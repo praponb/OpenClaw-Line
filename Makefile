@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean
+.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
 
 install:
 	npm install
@@ -17,7 +17,7 @@ test:
 	npm test
 
 test-py:
-	python3 -m pytest -q airflow/tests
+	python3 -m pytest -q airflow/tests databricks/tests
 
 # Regenerates/validates openclaw.plugin.json against the defineToolPlugin entry.
 validate-plugin: build
@@ -95,3 +95,17 @@ demo-down:
 # Also deletes Airflow history (the airflow-home volume).
 demo-clean:
 	$(COMPOSE) --profile tunnel --profile tunnel-quick down -v
+
+# Databricks on GCP pipeline (databricks/). Log in once with:
+#   databricks auth login --host <workspace URL> --profile $(LAKEHOUSE_PROFILE)
+LAKEHOUSE_PROFILE ?= openclaw
+FAULT ?= none
+lakehouse-validate:
+	cd databricks && databricks bundle validate -p $(LAKEHOUSE_PROFILE)
+
+lakehouse-deploy:
+	cd databricks && databricks bundle deploy -p $(LAKEHOUSE_PROFILE)
+
+# Manual run; FAULT=schema_drift|null_amounts|empty simulates upstream breakage.
+lakehouse-run:
+	cd databricks && databricks bundle run daily_revenue_lakehouse -p $(LAKEHOUSE_PROFILE) --params inject_fault=$(FAULT)

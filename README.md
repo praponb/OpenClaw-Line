@@ -121,6 +121,15 @@ Needs only Docker with the Compose plugin; Node runs inside a container for the 
 
 All services use `restart: unless-stopped`, so the stack comes back after a reboot. Airflow's history (metadata DB and task logs) lives in the `airflow-home` volume: `make demo-down` keeps it and `make demo-clean` deletes it. To open the Airflow login page from your network, set `AIRFLOW_BIND_ADDRESS` to the server's LAN IP and `AIRFLOW_PUBLIC_URL=http://<ip>:8080`, and use a strong `AIRFLOW_ADMIN_PASSWORD`. The other host ports bind to `127.0.0.1`; reach the local dashboard with `ssh -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
 
+## Databricks pipeline (GCP)
+`databricks/` is a Databricks Asset Bundle with a real version of the revenue pipeline, job `daily_revenue_lakehouse` on serverless compute: `land_stripe_events` (synthetic Stripe-style events into a GCS-backed volume) → `bronze_ingest` (Auto Loader, fixed schema, unknown fields to `_rescued_data`) → `silver_transactions` (fails on schema drift or null amounts, dedupes, signs refunds) → `gold_daily_revenue` (per-day totals, refuses empty or negative days). It has no schedule; Airflow triggers it.
+
+One-time setup by hand: a GCS bucket, a Unity Catalog storage credential and external location for it, catalog `lakehouse` (managed location `gs://<bucket>/_managed`) with schemas `bronze`, `silver`, `gold`, and external volume `lakehouse.bronze.landing` on `gs://<bucket>/landing`. File events on the external location are optional; without them Auto Loader lists the directory.
+
+- `databricks auth login --host <workspace URL> --profile openclaw`, then `make lakehouse-deploy`.
+- `make lakehouse-run` runs it once; `FAULT=schema_drift|null_amounts|empty` simulates upstream breakage for incident tests.
+- Each run lands its own file and silver reads only that file (via task values), so a rerun after a bad delivery is clean. Silver and gold rewrite their date partition, so reruns are idempotent.
+
 ## Status
 
 | Area | State |
