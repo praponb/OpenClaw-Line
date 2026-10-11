@@ -41,6 +41,8 @@ export type WorkerConfig = {
    * tunnel). Only started when Cloudflare Access verification is fully configured.
    */
   dashboard?: { port: number; access: AccessConfig };
+  /** MTTR: how often to check Airflow for a later successful run of open incidents (seconds; 0 = off). */
+  resolutionPollSeconds: number;
   /** "Test LINE" button: max test pushes per Bangkok day (each uses LINE push quota). */
   dashboardTestDailyLimit: number;
   /** Databricks job status on the dashboard (read-only service principal). Off unless all four are set. */
@@ -81,6 +83,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     dashboard: loadDashboardConfig(env),
     databricks: loadDatabricksConfig(env),
     dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
+    resolutionPollSeconds: envInt(env, "RESOLUTION_POLL_S", 300),
   };
 }
 

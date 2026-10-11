@@ -1,4 +1,4 @@
-import { decodePostback, ratingAck, reasonAck, reasonPrompt, unknownRefReply } from "./feedback.js";
+import { alreadyResolvedReply, decodePostback, ratingAck, reasonAck, reasonPrompt, resolvedAck, unknownRefReply } from "./feedback.js";
 import type { FeedbackStore } from "./feedbackStore.js";
 import { voterId } from "./feedbackStore.js";
 import type { LineClient, LineMessage, LineWebhookEvent } from "./line.js";
@@ -32,8 +32,19 @@ export async function handleLineEvents(deps: FeedbackDeps, events: LineWebhookEv
 
       const { ref, action } = decoded;
       let reply: LineMessage;
-      if (!deps.store.getIncident(ref)) {
+      const incident = deps.store.getIncident(ref);
+      if (!incident) {
         reply = unknownRefReply(ref);
+      } else if (action.kind === "resolve") {
+        const voter = voterId(deps.userSalt, ev.source?.userId, eventId);
+        const at = now();
+        if (deps.store.recordResolution(ref, at, "button", voter)) {
+          const start = incident.first_seen_at ?? incident.dispatched_at;
+          reply = resolvedAck(ref, start ? (at - start) / 1000 : null);
+          deps.log.info(`[feedback] ${ref}: resolved by button voter=${voter}`);
+        } else {
+          reply = alreadyResolvedReply(ref, deps.store.getIncident(ref)?.resolution ?? null);
+        }
       } else {
         const voter = voterId(deps.userSalt, ev.source?.userId, eventId);
         if (action.kind === "rating") {

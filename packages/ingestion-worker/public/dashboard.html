@@ -200,7 +200,7 @@
     <h2>Incidents</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Ref</th><th>DAG / task</th><th>Started</th><th>Status</th><th>Triage</th><th>Feedback</th><th>Prompt</th></tr></thead>
+        <thead><tr><th>Ref</th><th>DAG / task</th><th>Started</th><th>Status</th><th>Triage</th><th>Resolved</th><th>Feedback</th><th>Prompt</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -294,8 +294,8 @@
     var v = d.votes;
     var cards = [
       ["Helpful rate", fmtPct(v.helpfulRate), v.total ? v.up + " of " + v.total + " votes 👍" : "no votes yet"],
-      ["Median triage", fmtSecs(d.triage.medianSeconds), "first failure → report in LINE"],
-      ["p90 triage", fmtSecs(d.triage.p90Seconds), "90% of reports were faster"],
+      ["Median triage", fmtSecs(d.triage.medianSeconds), "first failure → report in LINE · p90 " + fmtSecs(d.triage.p90Seconds)],
+      ["MTTR (median)", fmtSecs(d.mttr.medianSeconds), d.mttr.resolved ? "first failure → resolved · " + d.mttr.resolved + " resolved, " + d.mttr.open + " open" : d.mttr.open ? d.mttr.open + " open, none resolved yet" : "no incidents"],
       ["Delivery rate", fmtPct(d.funnel.investigated ? d.funnel.delivered / d.funnel.investigated : null), d.funnel.delivered + " of " + d.funnel.investigated + " reports delivered"]
     ];
     clear($("kpis"));
@@ -367,7 +367,7 @@
   function renderRows(d) {
     var body = clear($("rows"));
     if (!d.incidents.length) {
-      body.appendChild(h("tr", null, h("td", { colspan: 7, class: "empty" }, "No incidents in this range. Trigger one with make demo-trigger.")));
+      body.appendChild(h("tr", null, h("td", { colspan: 8, class: "empty" }, "No incidents in this range. Trigger one with make demo-trigger.")));
       return;
     }
     d.incidents.forEach(function (i) {
@@ -380,11 +380,18 @@
         h("td", null, fmtTime(i.firstSeenAt || i.dispatchedAt)),
         h("td", null, h("span", { class: "badge b-" + i.state }, STATE_LABEL[i.state])),
         h("td", null, fmtSecs(i.triageSeconds)),
+        h("td", null, resolvedCell(i)),
         h("td", { class: "votes" }, voteCells(i)),
         h("td", { class: "mono dim" }, (i.promptVersion || "–").slice(0, 7)));
       body.appendChild(row);
-      if (expanded) body.appendChild(h("tr", null, h("td", { colspan: 7, class: "detail" }, detail(i))));
+      if (expanded) body.appendChild(h("tr", null, h("td", { colspan: 8, class: "detail" }, detail(i))));
     });
+  }
+
+  var RESOLVED_BY = { button: "✅ in LINE", next_success: "🔁 next run succeeded" };
+  function resolvedCell(i) {
+    if (i.resolveSeconds === null) return h("span", { class: "badge b-idle" }, "Open");
+    return h("span", { title: RESOLVED_BY[i.resolution] || i.resolution || "" }, fmtSecs(i.resolveSeconds) + " " + (i.resolution === "button" ? "✅" : "🔁"));
   }
 
   function voteCells(i) {
@@ -398,7 +405,8 @@
       ["First failure callback", i.firstSeenAt],
       ["Sent to investigator", i.dispatchedAt],
       ["Report delivered to LINE", i.reportSentAt],
-      ["Run completed" + (i.status ? " (" + i.status + ")" : ""), i.completedAt]
+      ["Run completed" + (i.status ? " (" + i.status + ")" : ""), i.completedAt],
+      ["Resolved" + (i.resolution ? " (" + (RESOLVED_BY[i.resolution] || i.resolution) + ")" : ""), i.resolvedAt]
     ];
     var base = i.firstSeenAt || i.dispatchedAt;
     var timeline = h("ul", { class: "timeline" }, steps.map(function (s) {

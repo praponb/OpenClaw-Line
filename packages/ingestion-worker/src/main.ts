@@ -4,7 +4,7 @@ import { createWorker } from "./server.js";
 
 const cfg = loadConfig();
 const dispatcher = cfg.dryRun ? new FileDispatcher(cfg.incidentDir) : new HookDispatcher(cfg.openclaw);
-const { server, publicServer, dashboardServer, aggregator, store } = createWorker(cfg, dispatcher);
+const { server, publicServer, dashboardServer, aggregator, store, resolutionWatcher } = createWorker(cfg, dispatcher);
 
 server.listen(cfg.port, () => {
   console.info(
@@ -27,7 +27,17 @@ if (dashboardServer && cfg.dashboard) {
   console.info("[worker] public dashboard disabled (set CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD and DASHBOARD_ALLOWED_EMAILS)");
 }
 
+let resolutionTimer: NodeJS.Timeout | undefined;
+if (resolutionWatcher && cfg.resolutionPollSeconds > 0) {
+  const check = () => resolutionWatcher.checkOnce().catch((err) => console.warn(`[mttr] check failed: ${(err as Error).message}`));
+  setTimeout(check, 30_000).unref();
+  resolutionTimer = setInterval(check, cfg.resolutionPollSeconds * 1000);
+  resolutionTimer.unref();
+  console.info(`[worker] MTTR: checking Airflow for later successful runs every ${cfg.resolutionPollSeconds}s`);
+}
+
 const shutdown = async () => {
+  clearInterval(resolutionTimer);
   console.info("[worker] shutting down; flushing pending incidents");
   server.close();
   publicServer?.close();

@@ -18,6 +18,7 @@ export function renderFeedbackReport(incidents: IncidentRow[], feedback: Feedbac
   out.push(
     `Incidents: ${incidents.length} (report delivered: ${delivered.length}, failed or undelivered: ${incidents.filter((i) => i.completed_at && i.delivered !== 1).length})`,
     `Triage time, failure -> report (median / p90): ${fmtDuration(quantile(triage, 0.5))} / ${fmtDuration(quantile(triage, 0.9))}`,
+    mttrLine(incidents),
     `Incidents with feedback: ${new Set(feedback.map((f) => f.ref)).size}`,
     "",
     "By prompt version:",
@@ -82,4 +83,14 @@ function indent(s: string): string {
     .split("\n")
     .map((l) => `    ${l}`)
     .join("\n");
+}
+
+/** MTTR: first failure -> resolved (✅ in LINE or the DAG's next successful run). */
+function mttrLine(incidents: IncidentRow[]): string {
+  const times = incidents
+    .map((i) => (i.resolved_at && (i.first_seen_at ?? i.dispatched_at) ? i.resolved_at - (i.first_seen_at ?? i.dispatched_at)! : undefined))
+    .filter((v): v is number => v !== undefined)
+    .sort((a, b) => a - b);
+  const byButton = incidents.filter((i) => i.resolution === "button").length;
+  return `MTTR, failure -> resolved (median / p90): ${fmtDuration(quantile(times, 0.5))} / ${fmtDuration(quantile(times, 0.9))} (${times.length} resolved: ${byButton} by button, ${times.length - byButton} by next successful run; ${incidents.length - times.length} open)`;
 }

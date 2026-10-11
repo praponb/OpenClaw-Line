@@ -162,6 +162,17 @@ describe("LINE webhook", () => {
     expect((await lineRequest(port, [])).status).toBe(200); // LINE "Verify" request
   });
 
+  it("records ✅ Resolved once (MTTR) and says so on a second tap", async () => {
+    const { store, sent, ref, port } = await ready();
+    await lineRequest(port, [postback(encodePostback("sign-key", ref, { kind: "resolve" }), "r1")]);
+    expect(sent[0]!.body.messages[0].text).toBe(`✅ Resolved: ${ref} marked resolved 1m 0s after the first failure. Thanks!`);
+    expect(store.getIncident(ref)).toMatchObject({ resolved_at: 61_000, resolution: "button" });
+    expect(store.getIncident(ref)!.resolved_by).not.toContain("U1");
+    await lineRequest(port, [postback(encodePostback("sign-key", ref, { kind: "resolve" }), "r2", "U2")]);
+    expect(sent[1]!.body.messages[0].text).toBe(`${ref} was already resolved.`);
+    expect(store.getFeedback(ref)).toHaveLength(0); // resolving is not a vote
+  });
+
   it("answers taps for unknown incidents without recording them", async () => {
     const { store, sent, port } = await ready();
     await lineRequest(port, [postback(encodePostback("sign-key", "INC-ZZZZZZ", { kind: "rating", rating: "up" }), "e9")]);
