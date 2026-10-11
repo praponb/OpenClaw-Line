@@ -73,6 +73,11 @@ export class PipelineStatus {
     this.client = new DatabricksClient({ host: cfg.host, clientId: cfg.clientId, clientSecret: cfg.clientSecret, fetch: deps.fetch, now: deps.now });
   }
 
+  /** Runs and compute time of the job since `since` (ms), e.g. the start of the month. */
+  month(since: number): Promise<MonthCompute> {
+    return monthCompute(this.client, this.cfg.jobId, since);
+  }
+
   async get(): Promise<PipelineData> {
     const now = (this.deps.now ?? Date.now)();
     if (this.cached && now - this.cached.at < CACHE_MS) return this.cached.data;
@@ -89,6 +94,31 @@ export class PipelineStatus {
     this.cached = { at: now, data };
     return data;
   }
+}
+
+export type MonthCompute = { runs: number; succeeded: number; failed: number; computeSeconds: number; waitSeconds: number; since: number };
+
+export async function monthCompute(client: DatabricksClient, jobId: string, since: number): Promise<MonthCompute> {
+  const out: MonthCompute = { runs: 0, succeeded: 0, failed: 0, computeSeconds: 0, waitSeconds: 0, since };
+  let pageToken = "";
+  for (let page = 0; page < 10; page++) {
+    const res = await client.get<{ runs?: ApiRun[]; next_page_token?: string }>(
+      `/api/2.2/jobs/runs/list?job_id=${encodeURIComponent(jobId)}&start_time_from=${since}&expand_tasks=true&limit=25${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`,
+    );
+    for (const r of res.runs ?? []) {
+      const run = toRun(r);
+      out.runs++;
+      if (run.state === "SUCCESS") out.succeeded++;
+      else if (r.end_time) out.failed++;
+      for (const t of run.tasks) {
+        out.computeSeconds += t.runSeconds ?? 0;
+        out.waitSeconds += t.waitSeconds ?? 0;
+      }
+    }
+    if (!res.next_page_token) break;
+    pageToken = res.next_page_token;
+  }
+  return out;
 }
 
 /** One state word per run/task: the result once finished, else the life-cycle state. */

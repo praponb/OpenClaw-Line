@@ -9,6 +9,8 @@ export type DispatchResult = {
   detail: string;
   /** Terminal run facts from `waitForCompletion` (hook mode only). Never contains model output. */
   completion?: Completion;
+  /** OpenClaw agent run id from the hook response; links token usage (cost) to the incident. */
+  runId?: string;
 };
 
 export interface Dispatcher {
@@ -64,7 +66,7 @@ export class HookDispatcher implements Dispatcher {
           signal: AbortSignal.timeout((this.cfg.timeoutSeconds + 120) * 1000),
         });
         const text = await res.text();
-        if (res.ok) return { ok: true, detail: `HTTP ${res.status} ${text.slice(0, 500)}`, completion: parseCompletion(text) };
+        if (res.ok) return { ok: true, detail: `HTTP ${res.status} ${text.slice(0, 500)}`, completion: parseCompletion(text), runId: parseRunId(text) };
         last = `HTTP ${res.status} ${text.slice(0, 500)}`;
         // 4xx (except 429) means the request itself is wrong: do not retry.
         if (res.status < 500 && res.status !== 429) return { ok: false, detail: last };
@@ -74,6 +76,15 @@ export class HookDispatcher implements Dispatcher {
       if (attempt < retries) await sleep(1000 * 2 ** (attempt - 1));
     }
     return { ok: false, detail: last };
+  }
+}
+
+function parseRunId(text: string): string | undefined {
+  try {
+    const id = (JSON.parse(text) as { runId?: unknown }).runId;
+    return typeof id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
   }
 }
 

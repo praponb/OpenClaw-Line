@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { verifySignature } from "@openclaw-line/shared";
-import { createReportForwarder } from "../src/forwarder.js";
+import { createReportForwarder, createUsageForwarder } from "../src/forwarder.js";
 
 const cfg = { workerUrl: "http://worker:8080/v1/openclaw/report", secret: "whsec", channel: "line", promptVersion: "abc123" };
 const REPORT = "🚨 Incident Summary: daily_revenue_pipeline / extract\n...\nRef: INC-7F3A2K";
@@ -41,3 +41,30 @@ describe("report-capture forwarder", () => {
     expect(log500.warn).toHaveBeenCalledWith(expect.stringContaining("HTTP 500"));
   });
 });
+
+describe("usage forwarder", () => {
+  const ucfg = { usageUrl: "http://worker:8080/v1/openclaw/usage", secret: "whsec", agentId: "pipeline-investigator" };
+  it("forwards the investigator's token counts by run id, signed, without any text", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 202 }));
+    const forward = createUsageForwarder(ucfg, { fetch: fetchMock as typeof fetch, log: { warn: vi.fn() } });
+    const event = { runId: "run-1", provider: "moonshot", model: "kimi-k3", usage: { input: 1200.4, output: 300, cacheRead: 5000, cacheWrite: -1 }, assistantTexts: ["secret report"] };
+    expect(await forward(event, { agentId: "pipeline-investigator" })).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(ucfg.usageUrl);
+    const body = String(init.body);
+    const headers = init.headers as Record<string, string>;
+    expect(verifySignature("whsec", body, headers["x-openclaw-timestamp"], headers["x-openclaw-signature"])).toBe(true);
+    expect(JSON.parse(body)).toEqual({ runId: "run-1", provider: "moonshot", model: "kimi-k3", input: 1200, output: 300, cacheRead: 5000, cacheWrite: 0 });
+    expect(body).not.toContain("secret report");
+  });
+
+  it("ignores other agents and events without usage or run id", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}"));
+    const forward = createUsageForwarder(ucfg, { fetch: fetchMock as typeof fetch, log: { warn: vi.fn() } });
+    expect(await forward({ runId: "r", usage: { input: 1 } }, { agentId: "main" })).toBe(false);
+    expect(await forward({ runId: "r" }, { agentId: "pipeline-investigator" })).toBe(false);
+    expect(await forward({ usage: { input: 1 } }, { agentId: "pipeline-investigator" })).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+

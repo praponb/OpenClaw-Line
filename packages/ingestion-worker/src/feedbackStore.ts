@@ -30,8 +30,20 @@ CREATE TABLE IF NOT EXISTS incidents (
   report_message_id TEXT,
   resolved_at       INTEGER,
   resolution        TEXT,
-  resolved_by       TEXT
+  resolved_by       TEXT,
+  agent_run_id      TEXT
 );
+CREATE TABLE IF NOT EXISTS model_usage (
+  run_id      TEXT NOT NULL,
+  provider    TEXT,
+  model       TEXT,
+  input       INTEGER NOT NULL,
+  output      INTEGER NOT NULL,
+  cache_read  INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL,
+  at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS model_usage_run ON model_usage (run_id);
 CREATE TABLE IF NOT EXISTS feedback (
   ref        TEXT NOT NULL,
   voter      TEXT NOT NULL,
@@ -69,7 +81,11 @@ export type IncidentRow = {
   resolved_at: number | null;
   resolution: string | null;
   resolved_by: string | null;
+  /** OpenClaw agent run id (joins model_usage). */
+  agent_run_id: string | null;
 };
+
+export type ModelUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; model: string | null };
 
 export type Resolution = "button" | "next_success";
 
@@ -78,6 +94,7 @@ const MIGRATIONS: [string, string][] = [
   ["resolved_at", "INTEGER"],
   ["resolution", "TEXT"],
   ["resolved_by", "TEXT"],
+  ["agent_run_id", "TEXT"],
 ];
 
 export type FeedbackRow = { ref: string; voter: string; rating: Rating | null; reason: Reason | null; created_at: number; updated_at: number };
@@ -125,6 +142,30 @@ export class FeedbackStore {
       .prepare(`UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version) WHERE ref = ?`)
       .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, ref);
     return Number(res.changes) > 0;
+  }
+
+  setAgentRunId(ref: string, runId: string): void {
+    this.db.prepare(`UPDATE incidents SET agent_run_id = ? WHERE ref = ?`).run(runId, ref);
+  }
+
+  /** One row per model call, forwarded by the report-capture plugin (may arrive before the run id is known). */
+  recordModelUsage(u: { runId: string; provider?: string; model?: string; input: number; output: number; cacheRead: number; cacheWrite: number }, at: number): void {
+    this.db
+      .prepare(`INSERT INTO model_usage (run_id, provider, model, input, output, cache_read, cache_write, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(u.runId, u.provider ?? null, u.model ?? null, u.input, u.output, u.cacheRead, u.cacheWrite, at);
+  }
+
+  /** Token totals per incident ref for incidents since `since`. */
+  usageSince(since: number): Map<string, ModelUsage> {
+    const rows = this.db
+      .prepare(
+        `SELECT i.ref AS ref, SUM(u.input) AS input, SUM(u.output) AS output, SUM(u.cache_read) AS cacheRead,
+                SUM(u.cache_write) AS cacheWrite, COUNT(*) AS calls, MAX(u.provider || '/' || u.model) AS model
+         FROM incidents i JOIN model_usage u ON u.run_id = i.agent_run_id
+         WHERE COALESCE(i.dispatched_at, i.first_seen_at) >= ? GROUP BY i.ref`,
+      )
+      .all(since) as (ModelUsage & { ref: string })[];
+    return new Map(rows.map(({ ref, ...u }) => [ref, { ...u, model: u.model && u.model !== "/" ? u.model : null }]));
   }
 
   /** First resolution wins; returns false when the incident was already resolved (or is unknown). */

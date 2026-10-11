@@ -124,6 +124,10 @@ services:
       DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID:-}
       DATABRICKS_CLIENT_ID: ${DATABRICKS_READER_CLIENT_ID:-}
       DATABRICKS_CLIENT_SECRET: ${DATABRICKS_READER_CLIENT_SECRET:-}
+      # Cost tracking: model prices in USD per million tokens (unset = tokens only).
+      MODEL_PRICE_INPUT_PER_MTOK: ${MODEL_PRICE_INPUT_PER_MTOK:-}
+      MODEL_PRICE_OUTPUT_PER_MTOK: ${MODEL_PRICE_OUTPUT_PER_MTOK:-}
+      MODEL_PRICE_CACHE_READ_PER_MTOK: ${MODEL_PRICE_CACHE_READ_PER_MTOK:-}
     volumes:
       - ./.state/incidents:/incidents
       - ./.state/feedback:/data

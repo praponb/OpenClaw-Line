@@ -40,6 +40,20 @@ export class LineClient {
     await this.post("/v2/bot/message/push", { to, messages }, { "X-Line-Retry-Key": retryKey });
   }
 
+  /** This month's message quota and usage, as LINE counts them (read-only). */
+  async quota(): Promise<{ limit: number | null; used: number }> {
+    const get = async <T>(path: string): Promise<T> => {
+      const res = await (this.deps.fetch ?? fetch)(`${this.baseUrl}${path}`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`LINE API ${res.status} on ${path}`);
+      return (await res.json()) as T;
+    };
+    const [q, c] = await Promise.all([get<{ type?: string; value?: number }>("/v2/bot/message/quota"), get<{ totalUsage?: number }>("/v2/bot/message/quota/consumption")]);
+    return { limit: q.type === "limited" && typeof q.value === "number" ? q.value : null, used: c.totalUsage ?? 0 };
+  }
+
   async reply(replyToken: string, messages: LineMessage[]): Promise<void> {
     await this.post("/v2/bot/message/reply", { replyToken, messages });
   }

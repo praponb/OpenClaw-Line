@@ -41,6 +41,8 @@ export type WorkerConfig = {
    * tunnel). Only started when Cloudflare Access verification is fully configured.
    */
   dashboard?: { port: number; access: AccessConfig };
+  /** Model prices in USD per million tokens, for the cost estimate; null = not configured (tokens only). */
+  modelPrices: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
   /** MTTR: how often to check Airflow for a later successful run of open incidents (seconds; 0 = off). */
   resolutionPollSeconds: number;
   /** "Test LINE" button: max test pushes per Bangkok day (each uses LINE push quota). */
@@ -84,7 +86,23 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     databricks: loadDatabricksConfig(env),
     dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
     resolutionPollSeconds: envInt(env, "RESOLUTION_POLL_S", 300),
+    modelPrices: loadModelPrices(env),
   };
+}
+
+function loadModelPrices(env: Env): WorkerConfig["modelPrices"] {
+  const num = (name: string) => {
+    const v = envOptional(env, name);
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) throw new Error(`${name} must be a non-negative number (USD per million tokens), got "${v}"`);
+    return n;
+  };
+  const input = num("MODEL_PRICE_INPUT_PER_MTOK");
+  const output = num("MODEL_PRICE_OUTPUT_PER_MTOK");
+  if (input === undefined || output === undefined) return null;
+  // Cache reads default to the input price (conservative) unless set.
+  return { input, output, cacheRead: num("MODEL_PRICE_CACHE_READ_PER_MTOK") ?? input, cacheWrite: num("MODEL_PRICE_CACHE_WRITE_PER_MTOK") ?? input };
 }
 
 function loadDatabricksConfig(env: Env): WorkerConfig["databricks"] {
