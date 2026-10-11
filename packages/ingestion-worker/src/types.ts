@@ -7,6 +7,9 @@ export type FailureEvent = {
   logical_date?: string;
   log_url?: string;
   exception?: string;
+  /** Set when the failed task ran a Databricks job (DatabricksRunNowOperator XCom). */
+  databricks_run_id?: string;
+  databricks_run_url?: string;
   /** When the worker received the callback (ms epoch); set by the worker, not the payload. */
   receivedAt?: number;
 };

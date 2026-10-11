@@ -1,0 +1,59 @@
+resources:
+  jobs:
+    daily_revenue_lakehouse:
+      name: daily_revenue_lakehouse
+      description: >
+        Stripe-style payment events -> bronze (Auto Loader) -> silver transactions -> gold daily revenue.
+        No schedule here: Airflow triggers it and owns retries and failure alerts.
+      max_concurrent_runs: 1
+      # Performance-optimized serverless: ~2 min per run vs ~12 min in STANDARD mode
+      # (STANDARD waits ~5 min for compute and runs slower), at a higher DBU rate.
+      performance_target: PERFORMANCE_OPTIMIZED
+      timeout_seconds: 3600
+      # Managed here, not in the UI: a deploy would overwrite UI changes.
+      permissions:
+        - level: CAN_MANAGE_RUN
+          service_principal_name: ${var.airflow_runner_sp}
+        - level: CAN_VIEW
+          service_principal_name: ${var.investigator_reader_sp}
+      tags:
+        project: openclaw-line
+        domain: finance
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        # Bangkok date (YYYY-MM-DD) to process; empty = today. Airflow passes {{ ds }}.
+        - name: run_date
+          default: ""
+        # none | schema_drift | null_amounts | empty — simulates upstream breakage for incident tests.
+        - name: inject_fault
+          default: none
+      # No cluster spec: tasks run on serverless job compute. disable_auto_optimization turns
+      # off serverless auto-retry; a bad delivery fails the same way twice, and Airflow owns retries.
+      tasks:
+        - task_key: land_stripe_events
+          notebook_task:
+            notebook_path: ../src/01_land_stripe_events.py
+          max_retries: 0
+          disable_auto_optimization: true
+        - task_key: bronze_ingest
+          depends_on:
+            - task_key: land_stripe_events
+          notebook_task:
+            notebook_path: ../src/02_bronze_ingest.py
+          max_retries: 0
+          disable_auto_optimization: true
+        - task_key: silver_transactions
+          depends_on:
+            - task_key: bronze_ingest
+          notebook_task:
+            notebook_path: ../src/03_silver_transactions.py
+          max_retries: 0
+          disable_auto_optimization: true
+        - task_key: gold_daily_revenue
+          depends_on:
+            - task_key: silver_transactions
+          notebook_task:
+            notebook_path: ../src/04_gold_daily_revenue.py
+          max_retries: 0
+          disable_auto_optimization: true

@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { envBool, envInt, envOptional, envString, type Env } from "@openclaw-line/shared";
 import { normalizeTeamDomain, type AccessConfig } from "./cfAccess.js";
+import type { PipelineStatusConfig } from "./pipelineStatus.js";
 
 export type WorkerConfig = {
   port: number;
@@ -40,6 +41,8 @@ export type WorkerConfig = {
    * tunnel). Only started when Cloudflare Access verification is fully configured.
    */
   dashboard?: { port: number; access: AccessConfig };
+  /** Databricks job status on the dashboard (read-only service principal). Off unless all four are set. */
+  databricks?: PipelineStatusConfig;
 };
 
 export function loadConfig(env: Env = process.env): WorkerConfig {
@@ -74,7 +77,16 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     },
     feedback: loadFeedbackConfig(env),
     dashboard: loadDashboardConfig(env),
+    databricks: loadDatabricksConfig(env),
   };
+}
+
+function loadDatabricksConfig(env: Env): WorkerConfig["databricks"] {
+  const host = envOptional(env, "DATABRICKS_HOST");
+  const clientId = envOptional(env, "DATABRICKS_CLIENT_ID");
+  const clientSecret = envOptional(env, "DATABRICKS_CLIENT_SECRET");
+  const jobId = envOptional(env, "DATABRICKS_JOB_ID");
+  return host && clientId && clientSecret && jobId && /^\d+$/.test(jobId) ? { host, clientId, clientSecret, jobId } : undefined;
 }
 
 function loadDashboardConfig(env: Env): WorkerConfig["dashboard"] {

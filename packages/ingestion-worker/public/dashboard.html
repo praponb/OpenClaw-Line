@@ -90,6 +90,24 @@
   .b-delivered { background: var(--up-soft); color: var(--up); }
   .b-failed { background: var(--mis-soft); color: var(--mis); }
   .b-running { background: var(--run-soft); color: var(--run); }
+  .b-blocked { background: var(--down-soft); color: var(--down); }
+  .b-idle { background: var(--surface-2); color: var(--muted); }
+  /* Databricks pipeline */
+  .h2link { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--run); text-decoration: none; }
+  .dbx-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 12px; }
+  .dbx-head .meta { color: var(--muted); font-size: 13px; }
+  .dbx-head a { color: var(--run); text-decoration: none; font-size: 13px; }
+  .tag.fault { background: var(--mis-soft); color: var(--mis); }
+  .step .badge { margin-top: 6px; }
+  .step.s-ok { box-shadow: inset 3px 0 0 var(--up); }
+  .step.s-bad { box-shadow: inset 3px 0 0 var(--mis); }
+  .step.s-run { box-shadow: inset 3px 0 0 var(--run); }
+  .step.s-blocked { box-shadow: inset 3px 0 0 var(--down); }
+  .step .k { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+  .dots i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; background: var(--border); vertical-align: -1px; }
+  .dots i.s-ok { background: var(--up); } .dots i.s-bad { background: var(--mis); } .dots i.s-run { background: var(--run); } .dots i.s-blocked { background: var(--down); }
+  table.compact { min-width: 640px; }
+  table.compact td { padding: 8px 10px; }
   .votes { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .votes span { margin-right: 8px; }
   .dim { color: var(--faint); }
@@ -138,8 +156,21 @@
 
   <div id="banner"></div>
 
+  <section class="card" id="dbx-card" style="margin-bottom:16px" hidden>
+    <h2>Databricks pipeline<a class="h2link" id="dbx-job" target="_blank" rel="noopener noreferrer"></a></h2>
+    <div id="dbx-latest"></div>
+    <div class="flow" id="dbx-flow"></div>
+    <h2 style="margin-top:20px">Recent runs</h2>
+    <div class="table-wrap">
+      <table class="compact">
+        <thead><tr><th>Started</th><th>Run date</th><th>Duration</th><th>Status</th><th>Tasks</th><th>Fault</th><th></th></tr></thead>
+        <tbody id="dbx-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="card" style="margin-bottom:16px">
-    <h2>Pipeline</h2>
+    <h2>Incident triage</h2>
     <div class="flow" id="flow"></div>
     <div class="flow-note" id="flow-note"></div>
   </section>
@@ -171,7 +202,7 @@
     </div>
   </section>
 
-  <footer>Read-only view of the ingestion worker's feedback log. Report text is model output and is shown as plain text.</footer>
+  <footer>Read-only view of the ingestion worker's feedback log and the Databricks Jobs API. Times are Bangkok time (UTC+7). Report text is model output and is shown as plain text.</footer>
 </div>
 
 <script>
@@ -222,12 +253,16 @@
     return (s / 3600).toFixed(1) + "h";
   }
   function fmtPct(r) { return r === null || r === undefined ? "–" : Math.round(r * 100) + "%"; }
+  // All times are shown in Bangkok time, whatever the viewer's browser time zone.
+  var TZ = "Asia/Bangkok";
+  function fmtClock(ms) { return new Date(ms).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }); }
   function fmtTime(ms) {
     if (!ms) return "–";
-    var d = new Date(ms), now = new Date();
-    var sameDay = d.toDateString() === now.toDateString();
-    return sameDay ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    var day = function (x) { return new Date(x).toLocaleDateString("en-GB", { timeZone: TZ }); };
+    var sameDay = day(ms) === day(Date.now());
+    return sameDay ? fmtClock(ms) : new Date(ms).toLocaleDateString("en-GB", { timeZone: TZ, month: "short", day: "numeric" }) + " " + fmtClock(ms);
   }
+  function fmtFull(ms) { return new Date(ms).toLocaleString("en-GB", { timeZone: TZ }); }
 
   // ---------- rendering ----------
   function renderFlow(d) {
@@ -364,7 +399,7 @@
     var base = i.firstSeenAt || i.dispatchedAt;
     var timeline = h("ul", { class: "timeline" }, steps.map(function (s) {
       var plus = s[1] && base ? " · +" + fmtSecs((s[1] - base) / 1000) : "";
-      return h("li", { class: s[1] ? null : "missing" }, h("div", null, s[0]), h("div", { class: "when" }, s[1] ? new Date(s[1]).toLocaleString() + plus : "—"));
+      return h("li", { class: s[1] ? null : "missing" }, h("div", null, s[0]), h("div", { class: "when" }, s[1] ? fmtFull(s[1]) + plus : "—"));
     }));
     var facts = h("dl", { class: "kv" },
       h("dt", null, "Run"), h("dd", { class: "mono" }, i.runId),
@@ -390,6 +425,69 @@
     }
   }
 
+  // ---------- Databricks pipeline ----------
+  var DBX = {
+    SUCCESS: ["Succeeded", "ok"], FAILED: ["Failed", "bad"], INTERNAL_ERROR: ["Failed", "bad"], TIMEDOUT: ["Timed out", "bad"],
+    CANCELED: ["Cancelled", "bad"], CANCELLED: ["Cancelled", "bad"], MAXIMUM_CONCURRENT_RUNS_REACHED: ["Skipped", "idle"],
+    UPSTREAM_FAILED: ["Blocked by failure", "blocked"], UPSTREAM_CANCELED: ["Blocked", "blocked"], EXCLUDED: ["Excluded", "idle"], SKIPPED: ["Skipped", "idle"],
+    RUNNING: ["Running", "run"], PENDING: ["Starting", "run"], QUEUED: ["Queued", "run"], TERMINATING: ["Finishing", "run"],
+    WAITING: ["Waiting", "idle"], BLOCKED: ["Waiting", "idle"]
+  };
+  var BADGE = { ok: "b-delivered", bad: "b-failed", run: "b-running", blocked: "b-blocked", idle: "b-idle" };
+  function dbx(stateName) { return DBX[stateName] || [stateName.charAt(0) + stateName.slice(1).toLowerCase().replace(/_/g, " "), "idle"]; }
+  function dbxBadge(stateName) { var m = dbx(stateName); return h("span", { class: "badge " + BADGE[m[1]] }, m[0]); }
+  function elapsed(start, end) { return start ? fmtSecs(((end || Date.now()) - start) / 1000) + (end ? "" : " so far") : "–"; }
+  // States where the task never executed (an upstream task failed, or it was skipped).
+  var NOT_RUN = { UPSTREAM_FAILED: 1, UPSTREAM_CANCELED: 1, SKIPPED: 1, EXCLUDED: 1, BLOCKED: 1, WAITING: 1 };
+  function taskTiming(t) {
+    if (NOT_RUN[t.state]) return "not run";
+    if (!t.startedAt) return "not started";
+    if (!t.endedAt || t.runSeconds === null) return fmtClock(t.startedAt) + " · " + elapsed(t.startedAt, t.endedAt);
+    return fmtClock(t.startedAt) + " · ran " + fmtSecs(t.runSeconds) + (t.waitSeconds >= 5 ? " · waited " + fmtSecs(t.waitSeconds) : "");
+  }
+  function runLink(r, label) { return r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, label) : null; }
+
+  function renderPipeline(p) {
+    var card = $("dbx-card");
+    if (!p || !p.enabled) { card.hidden = true; return; }
+    card.hidden = false;
+    var job = $("dbx-job");
+    job.textContent = (p.job.name || "job " + p.job.id) + " ↗"; job.href = p.job.url;
+    var head = clear($("dbx-latest")), flow = clear($("dbx-flow")), rows = clear($("dbx-rows"));
+    if (p.error) { head.appendChild(h("div", { class: "banner err" }, "Could not read the Databricks job: " + p.error)); }
+    var r = p.runs[0];
+    if (!r) { if (!p.error) head.appendChild(h("div", { class: "empty" }, "No runs yet.")); rows.appendChild(h("tr", null, h("td", { colspan: 7, class: "empty" }, "No runs yet."))); return; }
+    head.appendChild(h("div", { class: "dbx-head" },
+      dbxBadge(r.state),
+      h("span", { class: "meta" }, "Latest run · started " + fmtTime(r.startedAt) + " · " + (r.endedAt ? "took " + elapsed(r.startedAt, r.endedAt) : "running for " + elapsed(r.startedAt, null).replace(" so far", "")) + (r.runDate ? " · run date " + r.runDate : "")),
+      r.fault && r.fault !== "none" ? h("span", { class: "tag fault" }, "fault: " + r.fault) : null,
+      runLink(r, "Open in Databricks ↗")));
+    r.tasks.forEach(function (t) {
+      var m = dbx(t.state);
+      flow.appendChild(h("div", { class: "step s-" + m[1] },
+        h("div", { class: "k" }, t.key),
+        dbxBadge(t.state),
+        h("div", { class: "t", style: "margin-top:6px;color:var(--faint)", title: t.waitSeconds !== null ? "waiting for compute: " + fmtSecs(t.waitSeconds) + ", running: " + fmtSecs(t.runSeconds) : null }, taskTiming(t))));
+    });
+    p.runs.forEach(function (run) {
+      rows.appendChild(h("tr", null,
+        h("td", null, fmtTime(run.startedAt)),
+        h("td", { class: "mono" }, run.runDate || "–"),
+        h("td", null, run.endedAt ? elapsed(run.startedAt, run.endedAt) : elapsed(run.startedAt, null)),
+        h("td", null, dbxBadge(run.state)),
+        h("td", { class: "dots" }, run.tasks.map(function (t) { return h("i", { class: "s-" + dbx(t.state)[1], title: t.key + ": " + dbx(t.state)[0] }); })),
+        h("td", null, run.fault && run.fault !== "none" ? h("span", { class: "tag fault", style: "margin-left:0" }, run.fault) : h("span", { class: "dim" }, "–")),
+        h("td", null, runLink(run, "↗"))));
+    });
+  }
+
+  function loadPipeline() {
+    fetch("api/pipeline", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(renderPipeline)
+      .catch(function (e) { renderPipeline({ enabled: true, job: { id: "?", name: null, url: "#" }, runs: [], error: e.message }); });
+  }
+
   function render(d) {
     state.data = d;
     renderFlow(d); renderKpis(d); renderTriageChart(d); renderVersions(d); renderReasons(d); renderRows(d);
@@ -402,6 +500,7 @@
 
   function load() {
     $("updated").textContent = "Loading…";
+    loadPipeline();
     fetch("api/dashboard?days=" + state.days, { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (d) {
@@ -409,7 +508,7 @@
           banner("Feedback is disabled: set LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET for the ingestion worker to record incidents.", false);
           render({ funnel: { investigated: 0, completed: 0, delivered: 0, fallback: 0, rated: 0 }, votes: { up: 0, down: 0, misleading: 0, total: 0, helpfulRate: null }, triage: { medianSeconds: null, p90Seconds: null }, versions: [], reasons: [], incidents: [] });
         } else { banner(null); render(d); }
-        $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+        $("updated").textContent = "Updated " + new Date().toLocaleTimeString("en-GB", { timeZone: TZ }) + " (Bangkok)";
         $("updated").title = "Auto-refresh every " + REFRESH_MS / 1000 + "s";
       })
       .catch(function (e) { banner("Could not load dashboard data (" + e.message + "). Is the ingestion worker running?", true); $("updated").textContent = "Update failed"; });

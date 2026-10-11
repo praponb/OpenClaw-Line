@@ -20,6 +20,7 @@ export const configSchema = Type.Object(
     dbtManifestPath: Type.Optional(Type.String({ description: "Path to compiled dbt manifest.json. Env: DBT_MANIFEST_PATH." })),
     lineageMapPath: Type.Optional(Type.String({ description: "Optional Airflow task -> dbt node map. Env: LINEAGE_MAP_PATH." })),
     maxLogChars: Type.Optional(Type.Integer({ minimum: 1000, description: "Env: MAX_LOG_CHARS." })),
+    databricksHost: Type.Optional(Type.String({ description: "Databricks workspace URL. Env: DATABRICKS_HOST." })),
   },
   { additionalProperties: false },
 );
@@ -36,6 +37,8 @@ export type ResolvedConfig = {
   dbtManifestPath: string | undefined;
   lineageMapPath: string | undefined;
   maxLogChars: number;
+  /** Read-only service principal (CAN_VIEW on the job) for get_databricks_run_error. */
+  databricks: { host: string; clientId: string; clientSecret: string } | undefined;
 };
 
 /** Credentials are only ever read from the environment. */
@@ -81,11 +84,18 @@ export function resolveConfig(cfg: PluginConfig = {}, env: Env = process.env): R
     if (repoPath) git = { provider, repoPath, ref };
   }
 
+  const databricksHost = cfg.databricksHost ?? envOptional(env, "DATABRICKS_HOST");
+  const clientId = envOptional(env, "DATABRICKS_CLIENT_ID");
+  const clientSecret = envOptional(env, "DATABRICKS_CLIENT_SECRET");
+  const databricks =
+    databricksHost && clientId && clientSecret ? { host: databricksHost.replace(/\/+$/, ""), clientId, clientSecret } : undefined;
+
   return {
     airflow,
     git,
     dbtManifestPath: cfg.dbtManifestPath ?? envOptional(env, "DBT_MANIFEST_PATH"),
     lineageMapPath: cfg.lineageMapPath ?? envOptional(env, "LINEAGE_MAP_PATH"),
     maxLogChars: cfg.maxLogChars ?? envInt(env, "MAX_LOG_CHARS", 24_000),
+    databricks,
   };
 }

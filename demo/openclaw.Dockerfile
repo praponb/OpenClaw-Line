@@ -22,9 +22,12 @@ USER node
 # config in /opt/openclaw; the real config below lives in the same directory and
 # finds them at runtime. The investigator must be *installed* (not loaded via
 # plugins.load.paths): agent runs only pick tools from plugins with an install record.
+# Pin the official plugins to the gateway version: unpinned installs pull the newest
+# release, which can require a newer plugin API than this image (build fails).
+ARG OPENCLAW_PLUGIN_VERSION=2026.9.9
 RUN echo '{}' > /opt/openclaw/build.json5 \
- && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/line \
- && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/moonshot-provider \
+ && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/line@${OPENCLAW_PLUGIN_VERSION} \
+ && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/moonshot-provider@${OPENCLAW_PLUGIN_VERSION} \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install /opt/openclaw-plugins/pipeline-investigator --force --accept-capabilities \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install /opt/openclaw-plugins/report-capture --force --accept-capabilities \
  && rm -f /opt/openclaw/build.json5*

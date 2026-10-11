@@ -37,11 +37,34 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
+def _databricks_run(context: dict[str, Any], ti: Any) -> dict[str, str]:
+    """Databricks operators push run_id / run_page_url to XCom before waiting on the run.
+
+    The Airflow log only links to the run, so the investigator needs the id to read
+    the Databricks task error itself.
+    """
+    if not type(context.get("task")).__name__.startswith("Databricks") or not hasattr(ti, "xcom_pull"):
+        return {}
+    try:
+        run_id = ti.xcom_pull(task_ids=ti.task_id, key="run_id")
+        run_url = ti.xcom_pull(task_ids=ti.task_id, key="run_page_url")
+    except Exception:  # noqa: BLE001 - optional enrichment only
+        log.warning("Could not read the Databricks run id from XCom", exc_info=True)
+        return {}
+    out = {}
+    if run_id is not None:
+        out["databricks_run_id"] = str(run_id)
+    if run_url:
+        out["databricks_run_url"] = str(run_url)
+    return out
+
+
 def build_payload(context: dict[str, Any]) -> dict[str, Any]:
     ti = context.get("ti") or context.get("task_instance")
     dag_run = context.get("dag_run")
     exception = context.get("exception")
     return {
+        **_databricks_run(context, ti),
         "dag_id": getattr(ti, "dag_id", None) or getattr(context.get("dag"), "dag_id", None),
         "task_id": getattr(ti, "task_id", None),
         "run_id": getattr(dag_run, "run_id", None) or context.get("run_id"),

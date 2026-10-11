@@ -43,8 +43,8 @@
       "pipeline-investigator": {
         enabled: true,
         config: {
-          // Credentials (AIRFLOW_USERNAME/PASSWORD, GITHUB_TOKEN, GITLAB_TOKEN)
-          // are read from the environment only.
+          // Credentials (AIRFLOW_USERNAME/PASSWORD, GITHUB_TOKEN, GITLAB_TOKEN,
+          // DATABRICKS_HOST/CLIENT_ID/CLIENT_SECRET) are read from the environment only.
           airflowBaseUrl: "${AIRFLOW_BASE_URL}",
           airflowApiVersion: "v2",
           gitProvider: "local", // github | gitlab | local
@@ -88,12 +88,12 @@
   // collection review) that doctor would otherwise create for the agent:
   // they would call the model, and possibly LINE, with no incident.
   cron: { enabled: false },
-  // Expose the investigator's three tools directly, with their schemas.
+  // Expose the investigator's tools directly, with their schemas.
   // - Code Mode would replace them with a model-written JavaScript `exec`
   //   (node:vm, "not a security boundary"); it auto-enables for preferred
   //   models such as Kimi K3.
   // - Tool Search (on by default) hides schemas behind tool_search/tool_call,
-  //   which costs extra calls and wrong-argument retries for 3 tools.
+  //   which costs extra calls and wrong-argument retries for 4 tools.
   tools: { codeMode: false, toolSearch: false },
   skills: { workshop: { autonomous: { mode: "off" } } },
   memory: { search: { enabled: false } },
@@ -109,13 +109,13 @@
         model: { primary: "${OPENCLAW_MODEL}" }, // moonshot/kimi-k3
         skills: [],
         // Read-only enforcement at the platform level: the investigator only
-        // sees its three read-only plugin tools. Deny wins over allow.
+        // sees its four read-only plugin tools. Deny wins over allow.
         // No `profile`: a profile is applied before `allow`, and none of them include
         // plugin tools, so the run would end up with zero tools. `allow` alone is the
         // complete tool list.
         tools: {
           codeMode: false,
-          allow: ["get_airflow_task_log", "get_git_file_diff", "get_downstream_impact"],
+          allow: ["get_airflow_task_log", "get_databricks_run_error", "get_git_file_diff", "get_downstream_impact"],
           deny: [
             "group:runtime",
             "group:fs",

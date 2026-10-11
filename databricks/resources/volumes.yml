@@ -1,0 +1,7 @@
+resources:
+  volumes:
+    checkpoints:
+      catalog_name: ${var.catalog}
+      schema_name: bronze
+      name: checkpoints
+      comment: Auto Loader checkpoints for bronze ingestion (managed by the bundle).

@@ -2,7 +2,7 @@
 
 A read-only incident triage agent for data pipelines, built on [OpenClaw](https://docs.openclaw.ai) and powered by **Moonshot Kimi K3** (`moonshot/kimi-k3`). When an Airflow task fails, the investigator does two things:
 
-- **Gathers evidence:** task logs, recent git diffs and dbt lineage.
+- **Gathers evidence:** task logs, Databricks run errors, recent git diffs and dbt lineage.
 - **Posts a report to LINE:** facts are kept separate from hypotheses, the blast radius is listed, and there are at most 3 next steps.
 
 It never retries, fixes or changes anything. This implements roadmap Phases 1 and 2 of `spec.docx`, plus all §5 guardrails, and the Phase 3 feedback buttons (👍 / 👎 / "Misleading") with a feedback log for prompt tuning.
@@ -10,7 +10,7 @@ It never retries, fixes or changes anything. This implements roadmap Phases 1 an
 ```
 Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST /hooks/agent──▶ OpenClaw Gateway
                                            (dedupe per run,                         agent: pipeline-investigator
-                                            log pre-filter,                         (isolated session, 3 read-only tools)
+                                            log pre-filter,                         (isolated session, 4 read-only tools)
                                             sanitize)                                     │
                                                                                           ▼
                                                                                    LINE group (push)
@@ -21,21 +21,22 @@ Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST
 | Path | What |
 |---|---|
 | `packages/shared` | Sanitizer (secrets/PII), log pre-filter, read-only Airflow REST client (v1/v2) |
-| `packages/plugin` | OpenClaw tool plugin (`defineToolPlugin`) with `get_airflow_task_log`, `get_git_file_diff` and `get_downstream_impact` |
+| `packages/plugin` | OpenClaw tool plugin (`defineToolPlugin`) with `get_airflow_task_log`, `get_databricks_run_error`, `get_git_file_diff` and `get_downstream_impact` |
 | `packages/ingestion-worker` | Receives callbacks, verifies HMAC, dedupes per `(dag_id, run_id)`, picks the earliest failed task, pre-filters and sanitizes the log, then triggers `/hooks/agent`. Phase 3: sends the feedback card or a fallback notice, serves the LINE webhook, keeps the incident/feedback log (SQLite) |
 | `packages/report-capture` | OpenClaw hook plugin: forwards each delivered report (matched by its `Ref: INC-…` line) to the worker's feedback log |
 | `openclaw/openclaw.json5` | Gateway config: hooks, LINE channel, plugin, and the investigator agent with its tool policy |
 | `openclaw/workspace-investigator/AGENTS.md` | System prompt and output schema (spec §3, adapted for LINE plain text) |
 | `airflow/plugins/openclaw_callback.py` | `notify_openclaw`, the `on_failure_callback` (stdlib only, never raises) |
-| `airflow/dags/` | Demo DAG `daily_revenue_pipeline`, which reproduces the spec's Stripe `KeyError` |
+| `airflow/dags/` | Demo DAG `daily_revenue_pipeline`, which reproduces the spec's Stripe `KeyError`, and `databricks_daily_revenue`, which triggers the Databricks job |
+| `databricks/` | Databricks Asset Bundle: the real revenue pipeline on Databricks (GCP), bronze/silver/gold on serverless |
 | `demo/` | docker-compose stack (incl. Cloudflare tunnel), dbt manifest fixture, git-history seeder, dry-run and tunnel scripts |
 
 ## Read-only enforcement
 
-1. **Agent tool policy.** The agent's `allow` list holds only the 3 plugin tools, plus `deny` for runtime, fs, web, memory, sessions, messaging, cron and gateway. The tools are `optional`, so no other agent sees them. Code Mode and Tool Search are off (`tools.codeMode: false`, `tools.toolSearch: false`), so the model calls the 3 tools directly instead of through a model-written JavaScript `exec` or a generic `tool_call`.
+1. **Agent tool policy.** The agent's `allow` list holds only the 4 plugin tools, plus `deny` for runtime, fs, web, memory, sessions, messaging, cron and gateway. The tools are `optional`, so no other agent sees them. Code Mode and Tool Search are off (`tools.codeMode: false`, `tools.toolSearch: false`), so the model calls the 4 tools directly instead of through a model-written JavaScript `exec` or a generic `tool_call`.
 2. **No background runs.** Cron, the agent heartbeat, memory "dreaming" and skill review are disabled; the agent only runs when an incident arrives.
-3. **Tools only read.** They make HTTP GET requests (plus the Airflow 3 token exchange) or run `git log` through `execFile`, with path-traversal checks.
-4. **Read-only credentials.** Airflow uses a `viewer` role, GitHub a `contents:read` token, GitLab a `read_api` token. The repo and the dbt manifest are mounted `:ro`.
+3. **Tools only read.** They make HTTP GET requests (plus the Airflow 3 and Databricks OAuth token exchanges) or run `git log` through `execFile`, with path-traversal checks.
+4. **Read-only credentials.** Airflow uses a `viewer` role, Databricks a service principal with `CAN_VIEW` on the job only, GitHub a `contents:read` token, GitLab a `read_api` token. Airflow starts Databricks runs with a separate service principal (`CAN_MANAGE_RUN` only) that the gateway never sees. The repo and the dbt manifest are mounted `:ro`.
 5. **Isolated sessions.** Each incident runs in its own isolated session. `hooks.allowRequestSessionKey` is `false`, so nothing carries over between incidents.
 
 ## Guardrails (spec §5)
@@ -121,6 +122,17 @@ Needs only Docker with the Compose plugin; Node runs inside a container for the 
 
 All services use `restart: unless-stopped`, so the stack comes back after a reboot. Airflow's history (metadata DB and task logs) lives in the `airflow-home` volume: `make demo-down` keeps it and `make demo-clean` deletes it. To open the Airflow login page from your network, set `AIRFLOW_BIND_ADDRESS` to the server's LAN IP and `AIRFLOW_PUBLIC_URL=http://<ip>:8080`, and use a strong `AIRFLOW_ADMIN_PASSWORD`. The other host ports bind to `127.0.0.1`; reach the local dashboard with `ssh -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
 
+## Databricks pipeline (GCP)
+`databricks/` is a Databricks Asset Bundle with a real version of the revenue pipeline, job `daily_revenue_lakehouse` on serverless compute: `land_stripe_events` (synthetic Stripe-style events into a GCS-backed volume) → `bronze_ingest` (Auto Loader, fixed schema, unknown fields to `_rescued_data`) → `silver_transactions` (fails on schema drift or null amounts, dedupes, signs refunds) → `gold_daily_revenue` (per-day totals, refuses empty or negative days). It has no schedule; Airflow triggers it.
+
+One-time setup by hand: a GCS bucket, a Unity Catalog storage credential and external location for it, catalog `lakehouse` (managed location `gs://<bucket>/_managed`) with schemas `bronze`, `silver`, `gold`, and external volume `lakehouse.bronze.landing` on `gs://<bucket>/landing`. File events on the external location are optional; without them Auto Loader lists the directory.
+
+- `databricks auth login --host <workspace URL> --profile openclaw`, then `make lakehouse-deploy`.
+- `make lakehouse-run` runs it once; `FAULT=schema_drift|null_amounts|empty` simulates upstream breakage for incident tests.
+- Each run lands its own file and silver reads only that file (via task values), so a rerun after a bad delivery is clean. Silver and gold rewrite their date partition, so reruns are idempotent.
+
+Airflow side: DAG `databricks_daily_revenue` (manual for now; the `inject_fault` param passes through) starts the job with `DatabricksRunNowOperator`. The Airflow image adds the Databricks provider (`demo/airflow.Dockerfile`). Two service principals, both granted in the bundle: `DATABRICKS_RUNNER_*` (`CAN_MANAGE_RUN`) become Airflow's `databricks_default` connection; `DATABRICKS_READER_*` (`CAN_VIEW`) go to the gateway for `get_databricks_run_error` and to the worker, whose dashboard shows the job's latest runs and task states (`/api/pipeline`, cached 20 s). On failure, `notify_openclaw` adds the Databricks run id from XCom, and the investigator reads the failed Databricks task's error and trace instead of the Airflow log, which only links to the run.
+
 ## Status
 
 | Area | State |
@@ -144,7 +156,7 @@ Open items:
 - Mount the production `manifest.json` from your dbt runs. Use `lineage_map.json` to map Airflow task ids to dbt nodes when the names differ.
 - Outside docker, install the provider and channel with `openclaw plugins install @openclaw/moonshot-provider` and `openclaw plugins install @openclaw/line`.
 - Install the investigator plugin with `openclaw plugins install <staged dir> --force` (stage it with `node scripts/stage-plugin.mjs <dir>`), as the demo image does. Non-interactive installs also need `--accept-capabilities`.
-- Keep `tools.codeMode: false` and `tools.toolSearch: false`. Code Mode auto-enables for preferred models such as Kimi K3 and replaces the tools with a model-written JavaScript `exec` running in `node:vm`, which is not a security boundary. Tool Search hides the tool schemas behind a generic `tool_call`. After each OpenClaw upgrade, check that a run still calls the 3 tools directly.
+- Keep `tools.codeMode: false` and `tools.toolSearch: false`. Code Mode auto-enables for preferred models such as Kimi K3 and replaces the tools with a model-written JavaScript `exec` running in `node:vm`, which is not a security boundary. Tool Search hides the tool schemas behind a generic `tool_call`. After each OpenClaw upgrade, check that a run still calls the tools directly.
 - Don't set `tools.profile` on the investigator agent. Profiles are applied before `allow` and none of them include plugin tools, so runs fail with "No callable tools remain…".
 - Keep the Gateway port private. Its token is an operator credential.
 - Publish only the worker's public listener (`PUBLIC_PORT`, `/line/webhook`) through a named Cloudflare tunnel or your ingress. Keep the internal port (Airflow callbacks, report capture) private.

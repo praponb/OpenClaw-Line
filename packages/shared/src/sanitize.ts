@@ -43,6 +43,8 @@ const RULES: Rule[] = [
   { kind: "github_token", pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
   { kind: "gitlab_token", pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
   { kind: "slack_token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g },
+  // Databricks personal access tokens (dapi…) and service principal OAuth secrets (dose…).
+  { kind: "databricks_token", pattern: /\b(?:dapi|dose)[0-9a-f]{32}(?:-\d+)?\b/g },
   { kind: "anthropic_key", pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g },
   // OpenAI-style `sk-...` keys (Moonshot/Kimi, OpenAI, ...).
   { kind: "api_key", pattern: /\bsk-[A-Za-z0-9]{32,}\b/g },
