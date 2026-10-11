@@ -18,10 +18,21 @@ x-openclaw-env: &openclaw-env
   AIRFLOW_PASSWORD: ${AIRFLOW_VIEWER_PASSWORD}
   # report-capture plugin signs forwarded reports with the worker's shared secret
   WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+  # get_databricks_run_error: read-only service principal (CAN_VIEW on the job only).
+  # The runner credentials go to Airflow alone; the gateway never sees them.
+  DATABRICKS_HOST: ${DATABRICKS_HOST:-}
+  DATABRICKS_CLIENT_ID: ${DATABRICKS_READER_CLIENT_ID:-}
+  DATABRICKS_CLIENT_SECRET: ${DATABRICKS_READER_CLIENT_SECRET:-}
 
 services:
   airflow:
-    image: ${AIRFLOW_IMAGE:-apache/airflow:3.3.2}
+    # Stock Airflow plus the Databricks provider (demo/airflow.Dockerfile).
+    image: openclaw-line/airflow:local
+    build:
+      context: ..
+      dockerfile: demo/airflow.Dockerfile
+      args:
+        AIRFLOW_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.2}
     restart: unless-stopped
     # Linux hosts: set AIRFLOW_UID to your uid (id -u) so Airflow can write the
     # bind-mounted passwords file; the image supports any uid with gid 0.
@@ -37,6 +48,10 @@ services:
       OPENCLAW_INGEST_URL: http://ingestion-worker:8080/v1/airflow/failure
       OPENCLAW_WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       STRIPE_EVENTS_PATH: /opt/airflow/data/stripe_events.json
+      # databricks_daily_revenue DAG: sp-airflow-runner (CAN_MANAGE_RUN on the job only),
+      # OAuth client credentials. Empty values just leave that DAG unusable.
+      DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID:-}
+      AIRFLOW_CONN_DATABRICKS_DEFAULT: '{"conn_type": "databricks", "host": "${DATABRICKS_HOST:-}", "login": "${DATABRICKS_RUNNER_CLIENT_ID:-}", "password": "${DATABRICKS_RUNNER_CLIENT_SECRET:-}", "extra": {"service_principal_oauth": true}}'
     volumes:
       # Airflow home (SQLite metadata DB, task logs, generated airflow.cfg) in a
       # named volume so run history survives container recreation.

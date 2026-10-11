@@ -1,7 +1,7 @@
 {
   "id": "pipeline-investigator",
   "name": "Pipeline Incident Investigator",
-  "description": "Read-only tools for triaging failed data pipelines: Airflow task logs, git diffs, and dbt lineage.",
+  "description": "Read-only tools for triaging failed data pipelines: Airflow task logs, Databricks run errors, git diffs, and dbt lineage.",
   "version": "0.1.0",
   "activation": {
     "onStartup": true
@@ -79,6 +79,10 @@
         "type": "integer",
         "minimum": 1000,
         "description": "Env: MAX_LOG_CHARS."
+      },
+      "databricksHost": {
+        "type": "string",
+        "description": "Databricks workspace URL. Env: DATABRICKS_HOST."
       }
     },
     "additionalProperties": false
@@ -86,12 +90,16 @@
   "contracts": {
     "tools": [
       "get_airflow_task_log",
+      "get_databricks_run_error",
       "get_git_file_diff",
       "get_downstream_impact"
     ]
   },
   "toolMetadata": {
     "get_airflow_task_log": {
+      "optional": true
+    },
+    "get_databricks_run_error": {
       "optional": true
     },
     "get_git_file_diff": {

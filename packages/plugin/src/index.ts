@@ -1,6 +1,7 @@
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { configSchema, resolveConfig } from "./config.js";
 import { AIRFLOW_LOG_DESCRIPTION, airflowLogParams, getAirflowTaskLog } from "./tools/airflowLog.js";
+import { DATABRICKS_RUN_DESCRIPTION, databricksRunParams, getDatabricksRunError } from "./tools/databricksRun.js";
 import { DOWNSTREAM_IMPACT_DESCRIPTION, downstreamImpactParams, getDownstreamImpact } from "./tools/downstreamImpact.js";
 import { GIT_DIFF_DESCRIPTION, getGitFileDiff, gitDiffParams } from "./tools/gitDiff.js";
 
@@ -12,7 +13,7 @@ import { GIT_DIFF_DESCRIPTION, getGitFileDiff, gitDiffParams } from "./tools/git
 export default defineToolPlugin({
   id: "pipeline-investigator",
   name: "Pipeline Incident Investigator",
-  description: "Read-only tools for triaging failed data pipelines: Airflow task logs, git diffs, and dbt lineage.",
+  description: "Read-only tools for triaging failed data pipelines: Airflow task logs, Databricks run errors, git diffs, and dbt lineage.",
   configSchema,
   tools: (tool) => [
     tool({
@@ -24,6 +25,17 @@ export default defineToolPlugin({
       execute: (params, config, context) => {
         context.signal?.throwIfAborted();
         return getAirflowTaskLog(params, resolveConfig(config));
+      },
+    }),
+    tool({
+      name: "get_databricks_run_error",
+      label: "Databricks run error",
+      description: DATABRICKS_RUN_DESCRIPTION,
+      parameters: databricksRunParams,
+      optional: true,
+      execute: (params, config, context) => {
+        context.signal?.throwIfAborted();
+        return getDatabricksRunError(params, resolveConfig(config));
       },
     }),
     tool({

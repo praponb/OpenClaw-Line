@@ -317,6 +317,9 @@ export function parseEvent(body: unknown): FailureEvent {
     log_url: str("log_url", false),
     // Exceptions can be long; keep the head (sanitized again before use).
     exception: typeof b.exception === "string" ? b.exception.slice(0, 4_000) : undefined,
+    // Only well-formed values reach the agent prompt.
+    databricks_run_id: str("databricks_run_id", false)?.match(/^\d{1,20}$/)?.[0],
+    databricks_run_url: str("databricks_run_url", false)?.match(/^https:\/\/[^\s<>"]+$/)?.[0],
   };
 }
 

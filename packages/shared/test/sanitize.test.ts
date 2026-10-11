@@ -14,6 +14,8 @@ describe("sanitize", () => {
     ["stripe key", "stripe sk_live_51HxyzABCDEF0123456789", "[REDACTED:stripe_key]", "sk_live_51Hxyz"],
     ["moonshot key", "MOONSHOT key sk-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd leaked", "[REDACTED:api_key]", "sk-AbCdEf"],
     ["github token", "ghp_abcdefghijklmnopqrstuvwxyz0123456789", "[REDACTED:github_token]", "ghp_abcdef"],
+    ["databricks pat", "using dapi0123456789abcdef0123456789abcdef-2 for auth", "[REDACTED:databricks_token]", "dapi0123456789"],
+    ["databricks oauth secret", "secret dose0123456789abcdef0123456789abcdef", "[REDACTED:databricks_token]", "dose0123456789"],
     ["card number", "card 4242 4242 4242 4242 declined", "[REDACTED:card_number]", "4242 4242"],
   ])("redacts %s", (_name, input, expected, secret) => {
     const out = sanitize(input);

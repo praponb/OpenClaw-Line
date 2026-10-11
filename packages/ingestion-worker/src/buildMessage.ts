@@ -22,6 +22,8 @@ export function buildIncidentMessage(incident: Incident): string {
   if (r.try_number !== undefined) lines.push(`try_number: ${r.try_number}`);
   if (r.logical_date) lines.push(`logical_date: ${r.logical_date}`);
   if (r.log_url) lines.push(`airflow_log_url: ${r.log_url}`);
+  if (r.databricks_run_id) lines.push(`databricks_run_id: ${r.databricks_run_id}`);
+  if (r.databricks_run_url) lines.push(`databricks_run_url: ${r.databricks_run_url}`);
   lines.push(`failed tasks downstream of the root (blast radius, do not root-cause): ${list(incident.failedDescendants)}`);
   lines.push(`upstream_failed tasks blocked by this failure: ${list(incident.upstreamFailed)}`);
   if (incident.otherFailures.length) {
@@ -44,11 +46,19 @@ export function buildIncidentMessage(incident: Incident): string {
     lines.push(`LOG EXCERPT: unavailable (${incident.logNote ?? "not fetched"}). Use get_airflow_task_log.`);
   }
 
+  const steps = r.databricks_run_id
+    ? [
+        `1. This task ran a Databricks job; the Airflow log only links to it. Call get_databricks_run_error with run_id "${r.databricks_run_id}" and root-cause the failed Databricks task.`,
+        "2. Call get_git_file_diff for the failed task's source file (repository-relative, e.g. databricks/src/<notebook>.py).",
+      ]
+    : [
+        "1. If the excerpt lacks the full traceback, call get_airflow_task_log.",
+        "2. Call get_git_file_diff for the offending file(s) from the traceback (repository-relative paths).",
+      ];
   lines.push(
     "",
     "SUGGESTED STEPS",
-    "1. If the excerpt lacks the full traceback, call get_airflow_task_log.",
-    "2. Call get_git_file_diff for the offending file(s) from the traceback (repository-relative paths).",
+    ...steps,
     `3. Call get_downstream_impact for the failed task/model (try "${r.task_id}").`,
     "",
     `End the report with this exact last line: Ref: ${incident.ref}`,

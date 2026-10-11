@@ -52,6 +52,36 @@ def test_build_payload():
     }
 
 
+class DatabricksRunNowOperator:
+    """Stand-in: the callback only looks at the operator's class name."""
+
+
+def test_build_payload_adds_databricks_run():
+    ctx = make_context()
+    xcom = {"run_id": 907227724231, "run_page_url": "https://dbx.example/#job/1/run/907227724231"}
+    ctx["ti"].xcom_pull = lambda task_ids, key: xcom[key]
+    ctx["task"] = DatabricksRunNowOperator()
+    payload = openclaw_callback.build_payload(ctx)
+    assert payload["databricks_run_id"] == "907227724231"
+    assert payload["databricks_run_url"] == xcom["run_page_url"]
+
+
+def test_build_payload_skips_xcom_for_other_operators():
+    ctx = make_context()
+    ctx["ti"].xcom_pull = mock.Mock(side_effect=AssertionError("should not be called"))
+    payload = openclaw_callback.build_payload(ctx)
+    assert "databricks_run_id" not in payload
+
+
+def test_build_payload_survives_xcom_errors():
+    ctx = make_context()
+    ctx["ti"].xcom_pull = mock.Mock(side_effect=RuntimeError("no supervisor"))
+    ctx["task"] = DatabricksRunNowOperator()
+    payload = openclaw_callback.build_payload(ctx)
+    assert payload["task_id"] == "extract_stripe_transactions"
+    assert "databricks_run_id" not in payload
+
+
 def test_sends_signed_request(monkeypatch):
     monkeypatch.setenv("OPENCLAW_INGEST_URL", "http://worker:8080/v1/airflow/failure")
     monkeypatch.setenv("OPENCLAW_WEBHOOK_SECRET", "s3cret")
