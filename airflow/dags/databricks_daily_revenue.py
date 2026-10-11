@@ -39,8 +39,9 @@ def databricks_daily_revenue():
         databricks_conn_id="databricks_default",
         job_id=os.environ.get("DATABRICKS_JOB_ID", ""),
         job_parameters={
-            # Bangkok calendar date of the run; manual runs in Airflow 3 may have no logical date.
-            "run_date": "{{ (dag_run.logical_date or dag_run.run_after).in_timezone('Asia/Bangkok').strftime('%Y-%m-%d') }}",
+            # Bangkok calendar date (UTC+7, no DST). Manual runs in Airflow 3 may have no
+            # logical date, and run_after is a plain datetime (no pendulum in_timezone).
+            "run_date": "{{ ((dag_run.logical_date or dag_run.run_after) + macros.timedelta(hours=7)).strftime('%Y-%m-%d') }}",
             "inject_fault": "{{ params.inject_fault }}",
         },
         wait_for_termination=True,

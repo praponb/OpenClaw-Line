@@ -45,6 +45,10 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
       # URL your browser uses for the Airflow UI (login redirects and log links).
       AIRFLOW__API__BASE_URL: ${AIRFLOW_PUBLIC_URL:-http://localhost:8080}
+      # Tasks call the Execution API at {base_url}/execution/ by default; with a public
+      # base URL behind Cloudflare Access that returns a login redirect and tasks hang.
+      # Keep task traffic inside the container.
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://localhost:8080/execution/
       OPENCLAW_INGEST_URL: http://ingestion-worker:8080/v1/airflow/failure
       OPENCLAW_WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       STRIPE_EVENTS_PATH: /opt/airflow/data/stripe_events.json
