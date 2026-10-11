@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS incidents (
   prompt_version    TEXT,
   report_text       TEXT,
   report_sent_at    INTEGER,
-  report_message_id TEXT
+  report_message_id TEXT,
+  resolved_at       INTEGER,
+  resolution        TEXT,
+  resolved_by       TEXT
 );
 CREATE TABLE IF NOT EXISTS feedback (
   ref        TEXT NOT NULL,
@@ -62,7 +65,20 @@ export type IncidentRow = {
   report_text: string | null;
   report_sent_at: number | null;
   report_message_id: string | null;
+  /** MTTR: when the incident was resolved, how ("button" | "next_success"), and by whom (voter hash or Airflow run id). */
+  resolved_at: number | null;
+  resolution: string | null;
+  resolved_by: string | null;
 };
+
+export type Resolution = "button" | "next_success";
+
+/** Columns added after the first release; existing databases get them on startup. */
+const MIGRATIONS: [string, string][] = [
+  ["resolved_at", "INTEGER"],
+  ["resolution", "TEXT"],
+  ["resolved_by", "TEXT"],
+];
 
 export type FeedbackRow = { ref: string; voter: string; rating: Rating | null; reason: Reason | null; created_at: number; updated_at: number };
 
@@ -76,6 +92,8 @@ export class FeedbackStore {
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
+    const have = new Set((this.db.prepare(`PRAGMA table_info(incidents)`).all() as { name: string }[]).map((c) => c.name));
+    for (const [col, type] of MIGRATIONS) if (!have.has(col)) this.db.exec(`ALTER TABLE incidents ADD COLUMN ${col} ${type}`);
   }
 
   close(): void {
@@ -107,6 +125,21 @@ export class FeedbackStore {
       .prepare(`UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version) WHERE ref = ?`)
       .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, ref);
     return Number(res.changes) > 0;
+  }
+
+  /** First resolution wins; returns false when the incident was already resolved (or is unknown). */
+  recordResolution(ref: string, at: number, how: Resolution, by?: string): boolean {
+    const res = this.db
+      .prepare(`UPDATE incidents SET resolved_at = ?, resolution = ?, resolved_by = ? WHERE ref = ? AND resolved_at IS NULL`)
+      .run(at, how, by ?? null, ref);
+    return Number(res.changes) > 0;
+  }
+
+  /** Incidents still open, newest first, for the auto-resolution check. */
+  unresolvedSince(since: number): IncidentRow[] {
+    return this.db
+      .prepare(`SELECT * FROM incidents WHERE resolved_at IS NULL AND COALESCE(first_seen_at, dispatched_at) >= ? ORDER BY first_seen_at DESC`)
+      .all(since) as IncidentRow[];
   }
 
   getIncident(ref: string): IncidentRow | undefined {

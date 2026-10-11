@@ -4,7 +4,7 @@ import type { LineMessage } from "./line.js";
 /**
  * Phase 3 feedback UI (spec §6): a Flex card with 👍 / 👎 / "Misleading"
  * postback buttons sent after each report, plus a quick-reply reason prompt
- * after a negative rating.
+ * after a negative rating, and a "✅ Resolved" button that records MTTR.
  */
 
 export const RATINGS = { up: "👍 Helpful", down: "👎 Not helpful", misleading: "⚠️ Misleading" } as const;
@@ -19,16 +19,19 @@ export const REASONS = {
 } as const;
 export type Reason = keyof typeof REASONS;
 
-export type FeedbackAction = { kind: "rating"; rating: Rating } | { kind: "reason"; reason: Reason };
+export type FeedbackAction = { kind: "rating"; rating: Rating } | { kind: "reason"; reason: Reason } | { kind: "resolve" };
+
+export const RESOLVE_LABEL = "✅ Resolved";
 
 const VERSION = "fb1";
 
 /**
- * Postback data: `fb1|<ref>|<r:rating | why:reason>|<sig>`. The HMAC stops
+ * Postback data: `fb1|<ref>|<r:rating | why:reason | done>|<sig>`. The HMAC stops
  * anyone from forging votes for arbitrary refs; LINE's limit is 300 chars.
  */
 export function encodePostback(signingKey: string, ref: string, action: FeedbackAction): string {
-  const body = `${VERSION}|${ref}|${action.kind === "rating" ? `r:${action.rating}` : `why:${action.reason}`}`;
+  const code = action.kind === "rating" ? `r:${action.rating}` : action.kind === "reason" ? `why:${action.reason}` : "done";
+  const body = `${VERSION}|${ref}|${code}`;
   return `${body}|${postbackSig(signingKey, body)}`;
 }
 
@@ -40,6 +43,7 @@ export function decodePostback(signingKey: string, data: string | undefined): { 
   const expected = Buffer.from(postbackSig(signingKey, `${VERSION}|${ref}|${code}`));
   const given = Buffer.from(sig);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
+  if (code === "done") return { ref, action: { kind: "resolve" } };
   const [kind, value] = code.split(":", 2);
   if (kind === "r" && value && value in RATINGS) return { ref, action: { kind: "rating", rating: value as Rating } };
   if (kind === "why" && value && value in REASONS) return { ref, action: { kind: "reason", reason: value as Reason } };
@@ -79,7 +83,18 @@ export function feedbackCard(signingKey: string, incident: CardIncident): LineMe
         type: "box",
         layout: "vertical",
         spacing: "sm",
-        contents: [button("up", "primary"), button("down", "secondary"), button("misleading", "secondary")],
+        contents: [
+          button("up", "primary"),
+          button("down", "secondary"),
+          button("misleading", "secondary"),
+          { type: "separator", margin: "md" },
+          {
+            type: "button",
+            style: "link",
+            height: "sm",
+            action: { type: "postback", label: RESOLVE_LABEL, data: encodePostback(signingKey, incident.ref, { kind: "resolve" }) },
+          },
+        ],
       },
     },
   };
@@ -105,6 +120,23 @@ export function ratingAck(ref: string, rating: Rating): LineMessage {
 
 export function reasonAck(ref: string, reason: Reason): LineMessage {
   return { type: "text", text: `Noted "${REASONS[reason]}" for ${ref}. Thanks!` };
+}
+
+export function resolvedAck(ref: string, seconds: number | null): LineMessage {
+  return { type: "text", text: `${RESOLVE_LABEL}: ${ref} marked resolved${seconds === null ? "" : ` ${fmtDuration(seconds)} after the first failure`}. Thanks!` };
+}
+
+export function alreadyResolvedReply(ref: string, how: string | null): LineMessage {
+  return { type: "text", text: `${ref} was already resolved${how === "next_success" ? " (the DAG's next run succeeded)" : ""}.` };
+}
+
+/** 95 -> "1m 35s", 4500 -> "1h 15m", 200000 -> "2d 7h". */
+export function fmtDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  return `${Math.floor(s / 86_400)}d ${Math.floor((s % 86_400) / 3600)}h`;
 }
 
 export function unknownRefReply(ref: string): LineMessage {

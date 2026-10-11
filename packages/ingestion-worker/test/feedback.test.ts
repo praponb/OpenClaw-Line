@@ -37,17 +37,19 @@ describe("postback data", () => {
 });
 
 describe("LINE messages", () => {
-  it("feedback card has the three spec buttons with signed postbacks", () => {
+  it("feedback card has the three spec buttons plus Resolved, all with signed postbacks", () => {
     const card = feedbackCard(KEY, { ref: "INC-7F3A2K", dagId: "daily_revenue_pipeline", taskId: "extract_stripe_transactions" }) as any;
     expect(card.type).toBe("flex");
     expect(card.altText).toContain("INC-7F3A2K");
-    const buttons = card.contents.footer.contents;
-    expect(buttons.map((b: any) => b.action.label)).toEqual(["👍 Helpful", "👎 Not helpful", "⚠️ Misleading"]);
+    const buttons = card.contents.footer.contents.filter((c: any) => c.type === "button");
+    expect(buttons.map((b: any) => b.action.label)).toEqual(["👍 Helpful", "👎 Not helpful", "⚠️ Misleading", "✅ Resolved"]);
     expect(buttons.map((b: any) => decodePostback(KEY, b.action.data)?.action)).toEqual([
       { kind: "rating", rating: "up" },
       { kind: "rating", rating: "down" },
       { kind: "rating", rating: "misleading" },
+      { kind: "resolve" },
     ]);
+    expect(decodePostback("other-key", buttons[3].action.data)).toBeUndefined();
     expect(JSON.stringify(card).length).toBeLessThan(30_000); // Flex bubble limit
   });
 

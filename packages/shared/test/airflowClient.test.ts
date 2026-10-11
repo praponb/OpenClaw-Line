@@ -27,6 +27,17 @@ describe("AirflowClient", () => {
     for (const [u, init] of fetchMock.mock.calls) if (!String(u).endsWith("/auth/token")) expect(init!.method).toBe("GET");
   });
 
+  it("lists a DAG's most recent runs, newest first, with a GET", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) =>
+      String(url).endsWith("/auth/token") ? jsonResponse({ access_token: "tok" }, 201) : jsonResponse({ dag_runs: [{ dag_run_id: "r2", state: "success" }], total_entries: 1 }),
+    );
+    const c = new AirflowClient({ baseUrl: "http://af:8080", username: "u", password: "p", fetch: fetchMock as typeof fetch });
+    expect(await c.listDagRuns("my dag", 5)).toEqual([{ dag_run_id: "r2", state: "success" }]);
+    const call = fetchMock.mock.calls.find(([u]) => String(u).includes("/dagRuns"))! as unknown as [string, RequestInit];
+    expect(call[0]).toBe("http://af:8080/api/v2/dags/my%20dag/dagRuns?order_by=-start_date&limit=5");
+    expect(call[1].method).toBe("GET");
+  });
+
   it("v1: uses basic auth and the explicit try number", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ content: "x" }));
     const c = new AirflowClient({ baseUrl: "http://af", username: "u", password: "p", apiVersion: "v1", fetch: fetchMock as typeof fetch });

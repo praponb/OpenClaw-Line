@@ -29,6 +29,13 @@ export type TaskInstance = {
   map_index?: number;
 };
 
+export type DagRun = {
+  dag_run_id: string;
+  state: string | null;
+  start_date: string | null;
+  end_date: string | null;
+};
+
 export type TaskDefinition = {
   task_id: string;
   downstream_task_ids: string[];
@@ -79,6 +86,12 @@ export class AirflowClient {
   async listTasks(dagId: string): Promise<TaskDefinition[]> {
     const body = await this.getJson<{ tasks: TaskDefinition[] }>(`/dags/${enc(dagId)}/tasks`);
     return body.tasks ?? [];
+  }
+
+  /** Most recent runs of a DAG, newest first (read-only). */
+  async listDagRuns(dagId: string, limit = 10): Promise<DagRun[]> {
+    const body = await this.getJson<{ dag_runs: DagRun[] }>(`/dags/${enc(dagId)}/dagRuns?order_by=-start_date&limit=${limit}`);
+    return body.dag_runs ?? [];
   }
 
   private runPath(dagId: string, runId: string): string {

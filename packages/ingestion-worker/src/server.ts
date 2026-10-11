@@ -8,6 +8,7 @@ import type { DispatchResult, Dispatcher } from "./dispatcher.js";
 import { AccessVerifier, accessToken } from "./cfAccess.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { PipelineStatus } from "./pipelineStatus.js";
+import { ResolutionWatcher } from "./resolutionWatcher.js";
 import { TestNotifier, isSameOriginAction } from "./testNotification.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
 import { FeedbackStore } from "./feedbackStore.js";
@@ -34,6 +35,8 @@ export type Worker = {
   aggregator: FailureAggregator;
   investigate: (key: string, events: FailureEvent[]) => Promise<void>;
   store?: FeedbackStore;
+  /** MTTR auto-resolution (present when both the incident log and Airflow are configured). */
+  resolutionWatcher?: ResolutionWatcher;
 };
 
 export type WorkerDeps = {
@@ -302,7 +305,9 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     });
   }
 
-  return { server, publicServer, dashboardServer, aggregator, investigate, store };
+  const resolutionWatcher = store && airflow ? new ResolutionWatcher(store, airflow, { now, log }) : undefined;
+
+  return { server, publicServer, dashboardServer, aggregator, investigate, store, resolutionWatcher };
 }
 
 function retryKey(seed: string): string {

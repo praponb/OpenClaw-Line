@@ -113,6 +113,7 @@ LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 
 - **Dashboard:** `make demo-dashboard` opens http://localhost:8090/dashboard, a live view of the same data. It shows the pipeline funnel, helpful rate, triage times, votes by prompt version, reasons, and every incident with its timeline and report. It refreshes every 30 s. It is served only on the worker's internal port, never through the tunnel, because it shows report text. The page uses a strict Content-Security-Policy and renders report text as plain text.
 - **Dashboard on your own domain:** publish it as e.g. `dashboard.<domain>` through the named tunnel (service `http://ingestion-worker:8092`), protected by a Cloudflare Access application that allows only your email. The worker checks every request on port 8092 as well: the Access token's signature (against your team's published keys), audience, issuer and expiry, and that its email is in `DASHBOARD_ALLOWED_EMAILS`. Port 8092 serves only the dashboard, never the internal endpoints, and doesn't start unless `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` and `DASHBOARD_ALLOWED_EMAILS` are all set.
 - **Airflow UI on your own domain:** add a second route to the same named tunnel, e.g. `airflow.<domain>` → `http://airflow:8080`, protected by its own Cloudflare Access application (allow only your email). On the route, turn on **Protect with Access** with that application's AUD, so the tunnel connector also rejects requests without a valid Access token. Set `AIRFLOW_PUBLIC_URL=https://airflow.<domain>` so login redirects and log links use it. Error 1033 after the Access login means the hostname is attached to a tunnel with no running connector: put the route on the tunnel your server runs.
+- **MTTR:** the feedback card has a "✅ Resolved" button (signed postback; the first tap counts). The worker also checks Airflow every `RESOLUTION_POLL_S` (default 300 s, read-only viewer) and resolves an open incident when a later run of its DAG finished with the failed task in state `success`, at that run's end time. MTTR = first failure → resolved; the dashboard shows the median, open incidents, and how each was resolved, and `make feedback-report` prints it.
 - **Test LINE button:** the dashboard's "🔔 Test LINE" pushes one plain text message to `LINE_TARGET_ID` so you can check delivery on your phone. It needs the page's own `X-Dashboard-Action` header (no cross-site triggering), allows one test per 30 s and `DASHBOARD_TEST_DAILY_LIMIT` (default 10) per Bangkok day, since each test uses LINE push quota.
 - **Votes:** one per person per incident; a later tap replaces the earlier one. Taps and replies use LINE's free reply API; each incident uses 2 pushes (report + card).
 
@@ -144,12 +145,11 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 |---|---|
 | Phase 1 (callback, log tool, report to chat) | Done; delivered to LINE instead of Slack |
 | Phase 2 (git diff, dbt lineage, facts vs. hypotheses, blast radius) | Done; verified with local git and the fixture manifest |
-| Phase 3 (feedback buttons, feedback log, prompt-version tracking) | Done; triage time is measured, resolution time (MTTR) is not yet |
+| Phase 3 (feedback buttons, feedback log, prompt-version tracking) | Done; triage time and resolution time (MTTR) are measured |
 | Dashboard | Live view with Cloudflare Access for public hostnames |
 | Deployment | Linux server with Docker; named Cloudflare tunnel for the LINE webhook, dashboard and Airflow UI |
 
 Open items:
-- MTTR: record when an incident is resolved (a "✅ Resolved" button, or detecting the task's next success).
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), GitHub/GitLab provider with a read-only token, a production dbt manifest sync, the "data catalog" lineage option.
 - Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
 - Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.

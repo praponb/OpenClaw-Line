@@ -27,6 +27,10 @@ export type DashboardIncident = {
   reportSentAt: number | null;
   completedAt: number | null;
   triageSeconds: number | null;
+  /** MTTR: first failure -> resolved ("button" in LINE or the DAG's "next_success"). */
+  resolvedAt: number | null;
+  resolution: string | null;
+  resolveSeconds: number | null;
   votes: Record<Rating, number>;
   reasons: { reason: Reason; label: string; count: number }[];
   reportText: string | null;
@@ -39,6 +43,7 @@ export type DashboardData = {
   funnel: { investigated: number; completed: number; delivered: number; fallback: number; rated: number };
   votes: Record<Rating, number> & { total: number; helpfulRate: number | null };
   triage: { medianSeconds: number | null; p90Seconds: number | null };
+  mttr: { medianSeconds: number | null; p90Seconds: number | null; resolved: number; open: number };
   versions: { version: string; firstSeenAt: number | null; incidents: number; votes: Record<Rating, number>; helpfulRate: number | null }[];
   reasons: { reason: Reason; label: string; count: number }[];
   ratingLabels: Record<Rating, string>;
@@ -81,6 +86,9 @@ export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackR
       reportSentAt: i.report_sent_at,
       completedAt: i.completed_at,
       triageSeconds: state === "delivered" && i.first_seen_at && reportAt ? Math.round((reportAt - i.first_seen_at) / 100) / 10 : null,
+      resolvedAt: i.resolved_at,
+      resolution: i.resolution,
+      resolveSeconds: i.resolved_at && (i.first_seen_at ?? i.dispatched_at) ? Math.max(0, Math.round((i.resolved_at - (i.first_seen_at ?? i.dispatched_at)!) / 1000)) : null,
       votes,
       reasons: [...reasonCounts].map(([reason, count]) => ({ reason, label: REASONS[reason], count })),
       reportText: i.report_text,
@@ -110,6 +118,10 @@ export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackR
     .filter((s): s is number => s !== null)
     .sort((a, b) => a - b);
   const round = (s: number | undefined) => (s === undefined ? null : Math.round(s * 10) / 10);
+  const resolveTimes = rows
+    .map((r) => r.resolveSeconds)
+    .filter((s): s is number => s !== null)
+    .sort((a, b) => a - b);
 
   return {
     enabled: true,
@@ -124,6 +136,12 @@ export function buildDashboardData(incidents: IncidentRow[], feedback: FeedbackR
     },
     votes: { ...votes, total: votes.up + votes.down + votes.misleading, helpfulRate: helpful(votes) },
     triage: { medianSeconds: round(quantile(triage, 0.5)), p90Seconds: round(quantile(triage, 0.9)) },
+    mttr: {
+      medianSeconds: round(quantile(resolveTimes, 0.5)),
+      p90Seconds: round(quantile(resolveTimes, 0.9)),
+      resolved: resolveTimes.length,
+      open: rows.length - resolveTimes.length,
+    },
     versions: [...versions.values()].sort((a, b) => (a.firstSeenAt ?? 0) - (b.firstSeenAt ?? 0)),
     reasons: [...reasonCounts].sort((a, b) => b[1] - a[1]).map(([reason, count]) => ({ reason, label: REASONS[reason], count })),
     ratingLabels: { ...RATINGS },
