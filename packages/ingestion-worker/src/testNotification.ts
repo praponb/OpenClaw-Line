@@ -64,12 +64,12 @@ export class TestNotifier {
  * (cross-origin pages can't send one without a CORS preflight we never answer)
  * and reject requests whose Origin or Sec-Fetch-Site says they came from elsewhere.
  */
-export function isSameOriginAction(headers: Record<string, string | string[] | undefined>): boolean {
+export function isSameOriginAction(headers: Record<string, string | string[] | undefined>, action = "send-test"): boolean {
   const h = (name: string) => {
     const v = headers[name];
     return Array.isArray(v) ? v[0] : v;
   };
-  if (h("x-dashboard-action") !== "send-test") return false;
+  if (h("x-dashboard-action") !== action) return false;
   const site = h("sec-fetch-site");
   if (site && site !== "same-origin") return false;
   const origin = h("origin");

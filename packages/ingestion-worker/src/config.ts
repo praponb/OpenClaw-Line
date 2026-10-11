@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { envBool, envInt, envOptional, envString, type Env } from "@openclaw-line/shared";
 import { normalizeTeamDomain, type AccessConfig } from "./cfAccess.js";
 import type { PipelineStatusConfig } from "./pipelineStatus.js";
+import type { TriggerConfig } from "./pipelineTrigger.js";
 
 export type WorkerConfig = {
   port: number;
@@ -41,6 +42,8 @@ export type WorkerConfig = {
    * tunnel). Only started when Cloudflare Access verification is fully configured.
    */
   dashboard?: { port: number; access: AccessConfig };
+  /** "▶ Run pipeline" on the dashboard: separate Airflow account allowed to create DAG runs. Off unless its password is set. */
+  pipelineTrigger?: TriggerConfig;
   /** Model prices in USD per million tokens, for the cost estimate; null = not configured (tokens only). */
   modelPrices: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
   /** MTTR: how often to check Airflow for a later successful run of open incidents (seconds; 0 = off). */
@@ -87,6 +90,16 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
     resolutionPollSeconds: envInt(env, "RESOLUTION_POLL_S", 300),
     modelPrices: loadModelPrices(env),
+    pipelineTrigger:
+      airflowUrl && envOptional(env, "AIRFLOW_TRIGGER_PASSWORD")
+        ? {
+            baseUrl: airflowUrl,
+            username: envString(env, "AIRFLOW_TRIGGER_USERNAME", "dashboard"),
+            password: envString(env, "AIRFLOW_TRIGGER_PASSWORD"),
+            dagId: envString(env, "DASHBOARD_TRIGGER_DAG", "databricks_daily_revenue"),
+            dailyLimit: envInt(env, "DASHBOARD_TRIGGER_DAILY_LIMIT", 20),
+          }
+        : undefined,
   };
 }
 

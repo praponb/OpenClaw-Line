@@ -9,6 +9,7 @@ import { AccessVerifier, accessToken } from "./cfAccess.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { PipelineStatus } from "./pipelineStatus.js";
 import { CostTracker } from "./costs.js";
+import { PipelineTrigger } from "./pipelineTrigger.js";
 import { ResolutionWatcher } from "./resolutionWatcher.js";
 import { TestNotifier, isSameOriginAction } from "./testNotification.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
@@ -48,6 +49,7 @@ export type WorkerDeps = {
   now?: () => number;
   accessVerifier?: Pick<AccessVerifier, "verify">;
   pipeline?: Pick<PipelineStatus, "get">;
+  trigger?: Pick<PipelineTrigger, "trigger" | "dagId">;
 };
 
 export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: WorkerDeps = {}): Worker {
@@ -59,6 +61,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const line = deps.line ?? (fb ? new LineClient(fb.channelAccessToken, { baseUrl: fb.lineApiBaseUrl }) : undefined);
   const pipeline = deps.pipeline ?? (cfg.databricks ? new PipelineStatus(cfg.databricks, { now }) : undefined);
   const costs = new CostTracker({ line, pipeline: cfg.databricks && pipeline instanceof PipelineStatus ? pipeline : undefined, now });
+  const trigger = deps.trigger ?? (cfg.pipelineTrigger ? new PipelineTrigger(cfg.pipelineTrigger, { now }) : undefined);
   const testNotifier = new TestNotifier(line, cfg.openclaw.to, { now, dailyLimit: cfg.dashboardTestDailyLimit });
 
   async function investigate(key: string, events: FailureEvent[]): Promise<void> {
@@ -158,6 +161,23 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   /** Dashboard page + API. Returns false when the request is not a dashboard route. */
   function serveDashboard(req: IncomingMessage, res: ServerResponse, send: ReturnType<typeof jsonSender>, who = "internal"): boolean {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path === "/api/trigger-pipeline") {
+      if (req.method === "GET") send(200, trigger ? { enabled: true, dagId: trigger.dagId } : { enabled: false });
+      else if (req.method !== "POST") send(405, { error: "method not allowed" });
+      else if (!isSameOriginAction(req.headers, "run-pipeline")) send(403, { error: "forbidden" });
+      else if (!trigger) send(503, { ok: false, error: "Pipeline trigger is not configured (AIRFLOW_TRIGGER_PASSWORD)." });
+      else {
+        const fault = new URL(req.url ?? "/", "http://localhost").searchParams.get("fault") ?? "none";
+        trigger.trigger(fault).then(
+          (r) => {
+            log.info(`[dashboard] pipeline run requested by ${who} (fault=${fault.slice(0, 20)}): ${r.ok ? `started ${r.dagRunId}` : `${r.status} ${r.error}`}`);
+            send(r.ok ? 200 : r.status, r);
+          },
+          () => send(500, { error: "internal error" }),
+        );
+      }
+      return true;
+    }
     if (path === "/api/test-notification") {
       if (req.method !== "POST") send(405, { error: "method not allowed" });
       else if (!isSameOriginAction(req.headers)) send(403, { error: "forbidden" });

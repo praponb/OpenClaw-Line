@@ -33,7 +33,8 @@ seed:
 demo-env:
 	@test -f demo/.env || (cp demo/.env.example demo/.env && echo "Created demo/.env - fill in MOONSHOT_API_KEY (and LINE_* for delivery), then re-run." && exit 1)
 
-# Airflow simple-auth-manager passwords: admin + read-only investigator (Viewer).
+# Airflow simple-auth-manager passwords: admin, read-only investigator (viewer) and,
+# when AIRFLOW_TRIGGER_PASSWORD is set, the dashboard's "Run pipeline" account (user).
 demo-prepare: demo-env stage-plugin seed state
 
 # Same as demo-prepare, but builds with Node inside Docker (servers without Node 24).
@@ -49,7 +50,11 @@ build-docker:
 state:
 	@mkdir -p $(STATE)/incidents $(STATE)/airflow-auth $(STATE)/feedback
 	@set -a; source demo/.env; set +a; umask 077; \
-	  printf '{"admin": "%s", "investigator": "%s"}\n' "$$AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD" > $(STATE)/airflow-auth/passwords.json
+	  if [ -n "$$AIRFLOW_TRIGGER_PASSWORD" ]; then \
+	    printf '{"admin": "%s", "investigator": "%s", "dashboard": "%s"}\n' "$$AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD" "$$AIRFLOW_TRIGGER_PASSWORD"; \
+	  else \
+	    printf '{"admin": "%s", "investigator": "%s"}\n' "$$AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD"; \
+	  fi > $(STATE)/airflow-auth/passwords.json
 
 demo-up: demo-prepare
 	$(COMPOSE) up -d --build
