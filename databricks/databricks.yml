@@ -16,6 +16,13 @@ variables:
   investigator_reader_sp:
     description: Application ID of the investigator's read-only service principal (CAN_VIEW on the job).
 
+# Top-level permissions apply to every resource and to the deployed files: the
+# investigator's reader gets CAN_VIEW on the job and CAN_READ on the notebooks, so it
+# can map a failed task to its notebook id in Unity Catalog lineage.
+permissions:
+  - level: CAN_VIEW
+    service_principal_name: ${var.investigator_reader_sp}
+
 targets:
   prod:
     default: true

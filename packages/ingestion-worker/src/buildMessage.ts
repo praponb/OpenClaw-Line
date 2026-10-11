@@ -50,6 +50,7 @@ export function buildIncidentMessage(incident: Incident): string {
     ? [
         `1. This task ran a Databricks job; the Airflow log only links to it. Call get_databricks_run_error with run_id "${r.databricks_run_id}" and root-cause the failed Databricks task.`,
         "2. Call get_git_file_diff for the failed task's source file (repository-relative, e.g. databricks/src/<notebook>.py).",
+        "   The blast radius tables come from the UNITY CATALOG LINEAGE section of get_databricks_run_error.",
       ]
     : [
         "1. If the excerpt lacks the full traceback, call get_airflow_task_log.",
