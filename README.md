@@ -152,7 +152,7 @@ Open items:
 - Spec details: execution time in the summary line; the callback sends `log_url` rather than `log_filepath`.
 
 ## Production notes
-- Set `gitProvider` to `github` or `gitlab` in `openclaw.json5`, and provide `GITHUB_TOKEN` or `GITLAB_TOKEN` through the environment.
+- Set `GIT_PROVIDER=github` (or `gitlab`) with `GITHUB_REPO`, `GIT_REF` and a read-only `GITHUB_TOKEN` (or `GITLAB_PROJECT`/`GITLAB_TOKEN`) in the environment; the default is the seeded demo repo. `GIT_PATH_PREFIXES` (e.g. `airflow/`) is tried when a path from a traceback is not in the repository, and the tool reports "File not found in the repository" rather than "no commits" when no candidate exists.
 - Mount the production `manifest.json` from your dbt runs. Use `lineage_map.json` to map Airflow task ids to dbt nodes when the names differ.
 - Outside docker, install the provider and channel with `openclaw plugins install @openclaw/moonshot-provider` and `openclaw plugins install @openclaw/line`.
 - Install the investigator plugin with `openclaw plugins install <staged dir> --force` (stage it with `node scripts/stage-plugin.mjs <dir>`), as the demo image does. Non-interactive installs also need `--accept-capabilities`.

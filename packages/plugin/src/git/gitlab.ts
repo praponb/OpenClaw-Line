@@ -1,4 +1,4 @@
-import type { CommitQuery, FileCommit, GitProvider } from "./types.js";
+import type { CommitQuery, FileCommit, FileQuery, GitProvider } from "./types.js";
 
 type GitlabCommit = {
   id: string;
@@ -36,17 +36,31 @@ export class GitlabProvider implements GitProvider {
     return commits;
   }
 
+  async fileExists(q: FileQuery): Promise<boolean> {
+    const res = await this.request(`/repository/files/${encodeURIComponent(q.filePath)}?ref=${encodeURIComponent(q.ref ?? "HEAD")}`, q.signal);
+    if (res.ok) return true;
+    if (res.status !== 404) throw new Error(`GitLab API ${res.status} for /repository/files`);
+    // A private project also answers 404 without a valid token: make sure the project is reachable.
+    const project = await this.request("", q.signal);
+    if (!project.ok) throw new Error(`GitLab project ${this.opts.project} is not accessible (HTTP ${project.status}); check GITLAB_PROJECT and GITLAB_TOKEN`);
+    return false;
+  }
+
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const res = await this.request(path, signal);
+    if (!res.ok) throw new Error(`GitLab API ${res.status} for ${path.split("?")[0]}`);
+    return (await res.json()) as T;
+  }
+
+  private request(path: string, signal?: AbortSignal): Promise<Response> {
     const project = /^\d+$/.test(this.opts.project) ? this.opts.project : encodeURIComponent(this.opts.project);
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.opts.token) headers["PRIVATE-TOKEN"] = this.opts.token;
     const url = `${this.opts.apiUrl.replace(/\/+$/, "")}/projects/${project}${path}`;
-    const res = await (this.opts.fetch ?? fetch)(url, {
+    return (this.opts.fetch ?? fetch)(url, {
       method: "GET",
       headers,
       signal: signal ?? AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`GitLab API ${res.status} for ${path.split("?")[0]}`);
-    return (await res.json()) as T;
   }
 }

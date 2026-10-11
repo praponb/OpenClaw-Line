@@ -23,6 +23,14 @@ x-openclaw-env: &openclaw-env
   DATABRICKS_HOST: ${DATABRICKS_HOST:-}
   DATABRICKS_CLIENT_ID: ${DATABRICKS_READER_CLIENT_ID:-}
   DATABRICKS_CLIENT_SECRET: ${DATABRICKS_READER_CLIENT_SECRET:-}
+  # get_git_file_diff: the seeded demo repo by default; set GIT_PROVIDER=github with a
+  # fine-grained read-only token (Contents: read) to read the real repository.
+  GIT_PROVIDER: ${GIT_PROVIDER:-local}
+  LOCAL_REPO_PATH: /data/repo
+  GITHUB_REPO: ${GITHUB_REPO:-}
+  GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+  GIT_REF: ${GIT_REF:-}
+  GIT_PATH_PREFIXES: ${GIT_PATH_PREFIXES:-}
 
 services:
   airflow:

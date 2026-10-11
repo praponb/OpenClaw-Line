@@ -63,6 +63,10 @@
         "type": "string",
         "description": "Branch to inspect. Env: GIT_REF."
       },
+      "gitPathPrefixes": {
+        "type": "string",
+        "description": "Comma-separated prefixes tried when a path is not in the repository, e.g. airflow/ when DAGs live in airflow/dags/. Env: GIT_PATH_PREFIXES."
+      },
       "localRepoPath": {
         "type": "string",
         "description": "Read-only local clone for gitProvider=local. Env: LOCAL_REPO_PATH."

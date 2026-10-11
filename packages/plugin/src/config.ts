@@ -16,6 +16,9 @@ export const configSchema = Type.Object(
     gitlabProject: Type.Optional(Type.String({ description: "Project id or url-encoded path. Env: GITLAB_PROJECT." })),
     gitlabApiUrl: Type.Optional(Type.String({ description: "Env: GITLAB_API_URL." })),
     gitRef: Type.Optional(Type.String({ description: "Branch to inspect. Env: GIT_REF." })),
+    gitPathPrefixes: Type.Optional(
+      Type.String({ description: "Comma-separated prefixes tried when a path is not in the repository, e.g. airflow/ when DAGs live in airflow/dags/. Env: GIT_PATH_PREFIXES." }),
+    ),
     localRepoPath: Type.Optional(Type.String({ description: "Read-only local clone for gitProvider=local. Env: LOCAL_REPO_PATH." })),
     dbtManifestPath: Type.Optional(Type.String({ description: "Path to compiled dbt manifest.json. Env: DBT_MANIFEST_PATH." })),
     lineageMapPath: Type.Optional(Type.String({ description: "Optional Airflow task -> dbt node map. Env: LINEAGE_MAP_PATH." })),
@@ -34,6 +37,8 @@ export type ResolvedConfig = {
     | { provider: "gitlab"; project: string; apiUrl: string; token: string | undefined; ref: string | undefined }
     | { provider: "local"; repoPath: string; ref: string | undefined }
     | undefined;
+  /** Tried in order when the requested path is not in the repository. */
+  gitPathPrefixes: string[];
   dbtManifestPath: string | undefined;
   lineageMapPath: string | undefined;
   maxLogChars: number;
@@ -90,9 +95,16 @@ export function resolveConfig(cfg: PluginConfig = {}, env: Env = process.env): R
   const databricks =
     databricksHost && clientId && clientSecret ? { host: databricksHost.replace(/\/+$/, ""), clientId, clientSecret } : undefined;
 
+  const gitPathPrefixes = (cfg.gitPathPrefixes ?? envOptional(env, "GIT_PATH_PREFIXES") ?? "")
+    .split(",")
+    .map((p) => p.trim().replace(/^\.?\/+/, ""))
+    .filter((p) => p && !p.split("/").includes(".."))
+    .map((p) => (p.endsWith("/") ? p : `${p}/`));
+
   return {
     airflow,
     git,
+    gitPathPrefixes,
     dbtManifestPath: cfg.dbtManifestPath ?? envOptional(env, "DBT_MANIFEST_PATH"),
     lineageMapPath: cfg.lineageMapPath ?? envOptional(env, "LINEAGE_MAP_PATH"),
     maxLogChars: cfg.maxLogChars ?? envInt(env, "MAX_LOG_CHARS", 24_000),

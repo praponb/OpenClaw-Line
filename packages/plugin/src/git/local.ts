@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { CommitQuery, FileCommit, GitProvider } from "./types.js";
+import type { CommitQuery, FileCommit, FileQuery, GitProvider } from "./types.js";
 import { assertSafeRef } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -9,7 +9,7 @@ const FIELD = "\x1f";
 
 /**
  * Reads history from a local clone (mounted read-only in the demo).
- * Only `git log` is executed, via execFile (no shell).
+ * Only `git log` and `git cat-file -e` are executed, via execFile (no shell).
  */
 export class LocalGitProvider implements GitProvider {
   readonly name = "local";
@@ -39,6 +39,22 @@ export class LocalGitProvider implements GitProvider {
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" },
     });
     return parseGitLog(stdout);
+  }
+
+  async fileExists(q: FileQuery): Promise<boolean> {
+    const ref = q.ref ? assertSafeRef(q.ref) : "HEAD";
+    try {
+      await execFileAsync("git", ["-c", `safe.directory=${this.opts.repoPath}`, "-C", this.opts.repoPath, "cat-file", "-e", `${ref}:${q.filePath}`], {
+        timeout: 15_000,
+        signal: q.signal,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" },
+      });
+      return true;
+    } catch (err) {
+      // Exit code 128 = not found at that ref; anything else (git missing, timeout) is a real error.
+      if ((err as { code?: unknown }).code === 128 || (err as { code?: unknown }).code === 1) return false;
+      throw err;
+    }
   }
 }
 

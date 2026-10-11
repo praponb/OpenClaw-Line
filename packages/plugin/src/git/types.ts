@@ -15,9 +15,13 @@ export type CommitQuery = {
   signal?: AbortSignal;
 };
 
+export type FileQuery = { filePath: string; ref?: string; signal?: AbortSignal };
+
 export interface GitProvider {
   readonly name: string;
   recentFileCommits(query: CommitQuery): Promise<FileCommit[]>;
+  /** Whether the path exists at the ref, so "no commits" is not mistaken for "unchanged". */
+  fileExists(query: FileQuery): Promise<boolean>;
 }
 
 /** Repository-relative paths only: no absolute paths, traversal, or option injection. */
