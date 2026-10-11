@@ -88,6 +88,12 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       upstreamFailed: sel.upstreamFailed,
       otherFailures: sel.otherFailures,
     };
+    const rootTi = instances.find((i) => i.task_id === sel.root);
+    if (rootTi?.start_date) {
+      incident.rootStartedAt = rootTi.start_date;
+      const end = rootTi.end_date ? Date.parse(rootTi.end_date) : NaN;
+      if (Number.isFinite(end)) incident.rootDurationSeconds = Math.max(0, Math.round((end - Date.parse(rootTi.start_date)) / 1000));
+    }
 
     if (airflow) {
       try {
@@ -406,6 +412,7 @@ export function parseEvent(body: unknown): FailureEvent {
     try_number: typeof tryNumber === "number" && Number.isInteger(tryNumber) && tryNumber > 0 ? tryNumber : undefined,
     logical_date: str("logical_date", false),
     log_url: str("log_url", false),
+    log_filepath: str("log_filepath", false)?.match(/^[^\0\r\n]+$/)?.[0],
     // Exceptions can be long; keep the head (sanitized again before use).
     exception: typeof b.exception === "string" ? b.exception.slice(0, 4_000) : undefined,
     // Only well-formed values reach the agent prompt.

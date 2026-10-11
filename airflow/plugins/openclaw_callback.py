@@ -59,18 +59,36 @@ def _databricks_run(context: dict[str, Any], ti: Any) -> dict[str, str]:
     return out
 
 
+def _log_filepath(ti: Any, dag_id: Any, run_id: Any) -> str | None:
+    """Task log file on the Airflow worker (spec field). Airflow 3 dropped ti.log_filepath,
+    so build it from the default log_filename_template under the base log folder."""
+    existing = getattr(ti, "log_filepath", None)
+    if isinstance(existing, str) and existing:
+        return existing
+    task_id, try_number = getattr(ti, "task_id", None), getattr(ti, "try_number", None)
+    if not (dag_id and run_id and task_id and try_number):
+        return None
+    base = os.environ.get("AIRFLOW__LOGGING__BASE_LOG_FOLDER") or os.path.join(os.environ.get("AIRFLOW_HOME", "/opt/airflow"), "logs")
+    map_index = getattr(ti, "map_index", -1)
+    mapped = f"map_index={map_index}/" if isinstance(map_index, int) and map_index >= 0 else ""
+    return f"{base}/dag_id={dag_id}/run_id={run_id}/task_id={task_id}/{mapped}attempt={try_number}.log"
+
+
 def build_payload(context: dict[str, Any]) -> dict[str, Any]:
     ti = context.get("ti") or context.get("task_instance")
     dag_run = context.get("dag_run")
     exception = context.get("exception")
+    dag_id = getattr(ti, "dag_id", None) or getattr(context.get("dag"), "dag_id", None)
+    run_id = getattr(dag_run, "run_id", None) or context.get("run_id")
     return {
         **_databricks_run(context, ti),
-        "dag_id": getattr(ti, "dag_id", None) or getattr(context.get("dag"), "dag_id", None),
+        "dag_id": dag_id,
         "task_id": getattr(ti, "task_id", None),
-        "run_id": getattr(dag_run, "run_id", None) or context.get("run_id"),
+        "run_id": run_id,
         "try_number": getattr(ti, "try_number", None),
         "logical_date": _iso(context.get("logical_date") or getattr(dag_run, "logical_date", None)),
         "log_url": getattr(ti, "log_url", None),
+        "log_filepath": _log_filepath(ti, dag_id, run_id),
         "exception": (f"{type(exception).__name__}: {exception}"[:MAX_EXCEPTION_CHARS] if exception else None),
     }
 

@@ -16,6 +16,8 @@ Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST
                                                                                    LINE group (push)
 ```
 
+Docs: [operations runbook](docs/operations.md) (deploy, settings, identities, schedules, pitfalls) · [work log](docs/changelog.md) · [data residency](docs/data-residency.md)
+
 ## Layout
 
 | Path | What |
@@ -152,12 +154,11 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 | Deployment | Linux server with Docker; named Cloudflare tunnel for the LINE webhook, dashboard and Airflow UI |
 
 Open items:
-- Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), GitHub/GitLab provider with a read-only token, a production dbt manifest sync, the "data catalog" lineage option.
+- Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
 - Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
 - Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.
 - Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Before connecting real data: get a written no-training agreement from Moonshot (or switch model provider), and record or move the Databricks region (now Mumbai).
 - Retention: `REPORT_RETENTION_DAYS` (default 180) for incident report text; Airflow DAG `housekeeping` (daily 03:00 Bangkok) deletes task logs after `AIRFLOW_LOG_RETENTION_DAYS` (30); the Databricks job's `housekeeping` task deletes landing folders after `landing_retention_days` (90) and runs `VACUUM` (7 days). Airflow metadata older than `AIRFLOW_METADATA_RETENTION_DAYS` (90) is removed with `make airflow-db-clean`, run daily at 03:15 by the server's crontab (see the Makefile for the line). Airflow 3 tasks can't reach the metadata DB, so it isn't part of the DAG.
-- Spec details: execution time in the summary line; the callback sends `log_url` rather than `log_filepath`.
 
 ## Production notes
 - Set `GIT_PROVIDER=github` (or `gitlab`) with `GITHUB_REPO`, `GIT_REF` and a read-only `GITHUB_TOKEN` (or `GITLAB_PROJECT`/`GITLAB_TOKEN`) in the environment; the default is the seeded demo repo. `GIT_PATH_PREFIXES` (e.g. `airflow/`) is tried when a path from a traceback is not in the repository, and the tool reports "File not found in the repository" rather than "no commits" when no candidate exists.

@@ -65,8 +65,10 @@ export async function getDatabricksRunError(params: DatabricksRunParams, cfg: Re
 
     const failed = tasks.filter((t) => ["FAILED", "TIMEDOUT", "INTERNAL_ERROR"].includes(t.state?.result_state ?? ""));
     if (!failed.length) lines.push("", "No task failed in this run (failed tasks are the ones to root-cause; UPSTREAM_FAILED ones were only blocked).");
+    const sources = new Map<string, Promise<string[] | undefined>>();
     for (const t of failed.slice(0, MAX_TASKS_WITH_OUTPUT)) {
       const out = await get<RunOutput>(`/api/2.2/jobs/runs/get-output?run_id=${t.run_id}`);
+      const notebook = t.notebook_task?.notebook_path;
       const trace = filterLog((out.error_trace ?? "").replace(ANSI, ""), { tailLines: params.tail_lines ?? 120, maxChars: Math.floor(cfg.maxLogChars / 2) });
       lines.push(
         "",
@@ -75,6 +77,7 @@ export async function getDatabricksRunError(params: DatabricksRunParams, cfg: Re
         trace.text.trim() ? `error_trace (${trace.keptLines}/${trace.totalLines} lines kept):\n${sanitize(trace.text)}` : "error_trace: (none)",
         `----- END FAILED TASK ${t.task_key} -----`,
       );
+      lines.push(...(await fileLines((out.error_trace ?? "").replace(ANSI, ""), notebook, sources, get)));
     }
     if (failed.length > MAX_TASKS_WITH_OUTPUT) lines.push(`(${failed.length - MAX_TASKS_WITH_OUTPUT} more failed tasks not shown)`);
 
@@ -94,6 +97,40 @@ export async function getDatabricksRunError(params: DatabricksRunParams, cfg: Re
   } catch (err) {
     return toolError(`could not fetch Databricks run: ${sanitize((err as Error).message)}`);
   }
+}
+
+/**
+ * Notebook tracebacks number lines from the top of the cell ("File <command-…>, line 33").
+ * Find each failing line's code in the deployed notebook source to report the file line,
+ * which matches the repository file (the bundle deploys it unchanged).
+ */
+async function fileLines(
+  trace: string,
+  notebook: string | undefined,
+  sources: Map<string, Promise<string[] | undefined>>,
+  get: <T>(path: string) => Promise<T>,
+): Promise<string[]> {
+  const frames = [...trace.matchAll(/^-+>\s*(\d+)\s(.*)$/gm)].map((m) => ({ cellLine: Number(m[1]), code: m[2]!.trim() }));
+  if (!frames.length || !/File <command-\d+>/.test(trace)) return [];
+  const note = 'Line numbers in "File <command-…>" frames count from the top of the notebook cell, not the file.';
+  if (!notebook) return [note];
+  if (!sources.has(notebook)) {
+    sources.set(
+      notebook,
+      get<{ content?: string }>(`/api/2.0/workspace/export?format=SOURCE&path=${encodeURIComponent(notebook)}`)
+        .then((r) => (r.content ? Buffer.from(r.content, "base64").toString("utf8").split(/\r?\n/) : undefined))
+        .catch(() => undefined),
+    );
+  }
+  const source = await sources.get(notebook)!;
+  if (!source) return [note];
+  const out: string[] = [];
+  for (const f of frames) {
+    if (f.code.length < 8) continue;
+    const hits = source.flatMap((l, i) => (l.trim() === f.code ? [i + 1] : []));
+    if (hits.length === 1) out.push(`file line: ${notebook} line ${hits[0]} (the trace's cell-relative "line ${f.cellLine}")`);
+  }
+  return out.length ? out : [note];
 }
 
 /** A repaired or retried task appears once per attempt; keep the latest. */

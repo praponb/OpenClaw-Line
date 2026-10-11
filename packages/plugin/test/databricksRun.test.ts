@@ -82,4 +82,37 @@ describe("get_databricks_run_error", () => {
   it("errors when Databricks is not configured", async () => {
     expect(await getDatabricksRunError({ run_id: "1" }, resolveConfig({}, {}))).toMatch(/^Tool error: Databricks is not configured/);
   });
+
+  it("maps cell-relative traceback lines to the notebook file line", async () => {
+    const source = ["# Databricks notebook source", ...Array.from({ length: 39 }, (_, i) => `x${i} = ${i}`), "if n_rescued:", "    raise ValueError(schema_drift_message(landed_file, n))", "print('done')"].join("\n");
+    const trace = [
+      "ValueError                                Traceback (most recent call last)",
+      "File <command-8617842317921400>, line 33",
+      "     32 if n_rescued:",
+      "---> 33     raise ValueError(schema_drift_message(landed_file, n))",
+      "ValueError: Schema drift ...",
+    ].join("\n");
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith("/oidc/v1/token")) return Response.json({ access_token: "tok", expires_in: 3600 });
+      if (u.includes("/jobs/runs/get?run_id=111")) return Response.json(run);
+      if (u.includes("/jobs/runs/get-output?run_id=3")) return Response.json({ error: "ValueError: Schema drift", error_trace: trace });
+      if (u.includes("/workspace/export?format=SOURCE&path=%2FWorkspace%2Fx%2Ffiles%2Fsrc%2F03_silver_transactions")) return Response.json({ content: Buffer.from(source).toString("base64") });
+      return new Response("not found", { status: 404 });
+    });
+    const out = await getDatabricksRunError({ run_id: "111" }, resolveConfig({}, env), { fetch: fetchMock as typeof fetch });
+    expect(out).toContain('file line: /Workspace/x/files/src/03_silver_transactions line 42 (the trace\'s cell-relative "line 33")');
+  });
+
+  it("explains cell-relative line numbers when the source can't be read", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith("/oidc/v1/token")) return Response.json({ access_token: "tok", expires_in: 3600 });
+      if (u.includes("/jobs/runs/get?run_id=111")) return Response.json(run);
+      if (u.includes("/jobs/runs/get-output")) return Response.json({ error: "E", error_trace: "File <command-1>, line 5\n---> 5     raise RuntimeError('boom here')" });
+      return new Response("forbidden", { status: 403 });
+    });
+    const out = await getDatabricksRunError({ run_id: "111" }, resolveConfig({}, env), { fetch: fetchMock as typeof fetch });
+    expect(out).toContain('Line numbers in "File <command-…>" frames count from the top of the notebook cell, not the file.');
+  });
 });
