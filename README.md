@@ -32,10 +32,11 @@ Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST
 
 ## Read-only enforcement
 
-1. **Agent tool policy.** The agent's `allow` list holds only the 3 plugin tools, plus `deny` for runtime, fs, web, memory, sessions, messaging, cron and gateway. The tools are `optional`, so no other agent sees them.
-2. **Tools only read.** They make HTTP GET requests (plus the Airflow 3 token exchange) or run `git log` through `execFile`, with path-traversal checks.
-3. **Read-only credentials.** Airflow uses a `viewer` role, GitHub a `contents:read` token, GitLab a `read_api` token. The repo and the dbt manifest are mounted `:ro`.
-4. **Isolated sessions.** Each incident runs in its own isolated session. `hooks.allowRequestSessionKey` is `false`, so nothing carries over between incidents.
+1. **Agent tool policy.** The agent's `allow` list holds only the 3 plugin tools, plus `deny` for runtime, fs, web, memory, sessions, messaging, cron and gateway. The tools are `optional`, so no other agent sees them. Code Mode and Tool Search are off (`tools.codeMode: false`, `tools.toolSearch: false`), so the model calls the 3 tools directly instead of through a model-written JavaScript `exec` or a generic `tool_call`.
+2. **No background runs.** Cron, the agent heartbeat, memory "dreaming" and skill review are disabled; the agent only runs when an incident arrives.
+3. **Tools only read.** They make HTTP GET requests (plus the Airflow 3 token exchange) or run `git log` through `execFile`, with path-traversal checks.
+4. **Read-only credentials.** Airflow uses a `viewer` role, GitHub a `contents:read` token, GitLab a `read_api` token. The repo and the dbt manifest are mounted `:ro`.
+5. **Isolated sessions.** Each incident runs in its own isolated session. `hooks.allowRequestSessionKey` is `false`, so nothing carries over between incidents.
 
 ## Guardrails (spec §5)
 
@@ -65,8 +66,11 @@ make demo-dry    # full stack; prints the triage report in the terminal (no LINE
 make demo-up && make demo-trigger   # real run: report is pushed to LINE_TARGET_ID
 make demo-tunnel   # Phase 3: Cloudflare tunnel + LINE webhook for the feedback buttons
 make feedback-report               # review feedback for prompt tuning
+make demo-dashboard                # live dashboard at http://localhost:8090/dashboard
 make demo-logs / make demo-down
 ```
+
+The demo DAG runs only when triggered (`schedule=None`): every run fails on purpose and costs a model call plus a LINE message.
 
 What happens in the demo:
 1. `extract_stripe_transactions` fails with `KeyError: 'payment_intent_id'` on a `charge.refunded` event.
@@ -103,7 +107,37 @@ LINE ──POST /line/webhook──▶ Cloudflare tunnel ──▶ worker :8091 
 - **Stable URL:** a quick-tunnel URL changes every time the tunnel restarts, so re-run `make demo-tunnel`. For a fixed hostname, create a named tunnel in Cloudflare Zero Trust with a public hostname pointing to `http://ingestion-worker:8091`, then set `CLOUDFLARE_TUNNEL_TOKEN` and `PUBLIC_WEBHOOK_BASE_URL` in `demo/.env`.
 - **Review:** `make feedback-report` (or `DAYS=7 make feedback-report`) shows votes and the helpful rate by prompt version (a hash of `AGENTS.md`), reasons, triage time (first failure callback → report delivered), and every 👎 / ⚠️ with its report text. Use it to tune `AGENTS.md`, then compare the next prompt version.
 - **Security:** only `/line/webhook` is reachable through the tunnel (a separate listener on port 8091). Requests must carry a valid `x-line-signature`; button data is HMAC-signed so votes can't be forged; LINE redeliveries are ignored. Voters are stored as salted hashes, never raw LINE user ids. Data lives in `demo/.state/feedback/feedback.db`.
+- **Dashboard:** `make demo-dashboard` opens http://localhost:8090/dashboard, a live view of the same data. It shows the pipeline funnel, helpful rate, triage times, votes by prompt version, reasons, and every incident with its timeline and report. It refreshes every 30 s. It is served only on the worker's internal port, never through the tunnel, because it shows report text. The page uses a strict Content-Security-Policy and renders report text as plain text.
+- **Dashboard on your own domain:** publish it as e.g. `dashboard.<domain>` through the named tunnel (service `http://ingestion-worker:8092`), protected by a Cloudflare Access application that allows only your email. The worker checks every request on port 8092 as well: the Access token's signature (against your team's published keys), audience, issuer and expiry, and that its email is in `DASHBOARD_ALLOWED_EMAILS`. Port 8092 serves only the dashboard, never the internal endpoints, and doesn't start unless `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` and `DASHBOARD_ALLOWED_EMAILS` are all set.
+- **Airflow UI on your own domain:** add a second route to the same named tunnel, e.g. `airflow.<domain>` → `http://airflow:8080`, protected by its own Cloudflare Access application (allow only your email). On the route, turn on **Protect with Access** with that application's AUD, so the tunnel connector also rejects requests without a valid Access token. Set `AIRFLOW_PUBLIC_URL=https://airflow.<domain>` so login redirects and log links use it. Error 1033 after the Access login means the hostname is attached to a tunnel with no running connector: put the route on the tunnel your server runs.
 - **Votes:** one per person per incident; a later tap replaces the earlier one. Taps and replies use LINE's free reply API; each incident uses 2 pushes (report + card).
+
+## Deploy to a Linux server
+Needs only Docker with the Compose plugin; Node runs inside a container for the build.
+1. Copy the repo and `demo/.env` to the server, for example with `rsync -az --exclude node_modules --exclude 'packages/*/dist' --exclude demo/.state ./ user@server:OpenClaw-Line/`. On later syncs also exclude `demo/.env`, which holds server-only settings.
+2. In the server's `demo/.env`, set `AIRFLOW_UID=$(id -u)`. Override `AIRFLOW_HOST_PORT`, `WORKER_HOST_PORT` or `WEBHOOK_HOST_PORT` if those ports are taken.
+3. Run `make demo-prepare-docker`, then `docker compose --env-file demo/.env -f demo/docker-compose.yml up -d --build`, then `make demo-tunnel`.
+4. Run the named tunnel on **one** machine only. Stop the old host's stack before starting the tunnel on the new one, otherwise Cloudflare splits LINE webhooks and dashboard traffic between them.
+
+All services use `restart: unless-stopped`, so the stack comes back after a reboot. Airflow's history (metadata DB and task logs) lives in the `airflow-home` volume: `make demo-down` keeps it and `make demo-clean` deletes it. To open the Airflow login page from your network, set `AIRFLOW_BIND_ADDRESS` to the server's LAN IP and `AIRFLOW_PUBLIC_URL=http://<ip>:8080`, and use a strong `AIRFLOW_ADMIN_PASSWORD`. The other host ports bind to `127.0.0.1`; reach the local dashboard with `ssh -L 8090:localhost:<WORKER_HOST_PORT> user@server`.
+
+## Status
+
+| Area | State |
+|---|---|
+| Phase 1 (callback, log tool, report to chat) | Done; delivered to LINE instead of Slack |
+| Phase 2 (git diff, dbt lineage, facts vs. hypotheses, blast radius) | Done; verified with local git and the fixture manifest |
+| Phase 3 (feedback buttons, feedback log, prompt-version tracking) | Done; triage time is measured, resolution time (MTTR) is not yet |
+| Dashboard | Live view with Cloudflare Access for public hostnames |
+| Deployment | Linux server with Docker; named Cloudflare tunnel for the LINE webhook, dashboard and Airflow UI |
+
+Open items:
+- MTTR: record when an incident is resolved (a "✅ Resolved" button, or detecting the task's next success).
+- Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), GitHub/GitLab provider with a read-only token, a production dbt manifest sync, the "data catalog" lineage option.
+- Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
+- Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.
+- CI (vitest + pytest on PRs), cost tracking per incident, and a data-residency review for sending sanitized evidence to Moonshot.
+- Spec details: execution time in the summary line; the callback sends `log_url` rather than `log_filepath`.
 
 ## Production notes
 - Set `gitProvider` to `github` or `gitlab` in `openclaw.json5`, and provide `GITHUB_TOKEN` or `GITLAB_TOKEN` through the environment.

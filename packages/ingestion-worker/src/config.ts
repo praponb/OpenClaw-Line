@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { envBool, envInt, envOptional, envString, type Env } from "@openclaw-line/shared";
+import { normalizeTeamDomain, type AccessConfig } from "./cfAccess.js";
 
 export type WorkerConfig = {
   port: number;
@@ -34,6 +35,11 @@ export type WorkerConfig = {
     /** Recorded with each incident; the gateway's agent config decides the model actually used. */
     modelLabel?: string;
   };
+  /**
+   * Public dashboard listener (e.g. dashboard.example.com through the Cloudflare
+   * tunnel). Only started when Cloudflare Access verification is fully configured.
+   */
+  dashboard?: { port: number; access: AccessConfig };
 };
 
 export function loadConfig(env: Env = process.env): WorkerConfig {
@@ -67,7 +73,20 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
       timeoutSeconds: envInt(env, "OPENCLAW_TIMEOUT_S", 300),
     },
     feedback: loadFeedbackConfig(env),
+    dashboard: loadDashboardConfig(env),
   };
+}
+
+function loadDashboardConfig(env: Env): WorkerConfig["dashboard"] {
+  const teamDomain = envOptional(env, "CF_ACCESS_TEAM_DOMAIN");
+  const aud = envOptional(env, "CF_ACCESS_AUD");
+  const allowedEmails = (envOptional(env, "DASHBOARD_ALLOWED_EMAILS") ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  // Fail closed: no public listener unless every check can be enforced.
+  if (!teamDomain || !aud || !allowedEmails.length) return undefined;
+  return { port: envInt(env, "DASHBOARD_PORT", 8092), access: { teamDomain: normalizeTeamDomain(teamDomain), aud, allowedEmails } };
 }
 
 function loadFeedbackConfig(env: Env): WorkerConfig["feedback"] {

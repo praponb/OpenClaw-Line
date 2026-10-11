@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report
+.PHONY: install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean
 
 install:
 	npm install
@@ -34,9 +34,21 @@ demo-env:
 	@test -f demo/.env || (cp demo/.env.example demo/.env && echo "Created demo/.env - fill in MOONSHOT_API_KEY (and LINE_* for delivery), then re-run." && exit 1)
 
 # Airflow simple-auth-manager passwords: admin + read-only investigator (Viewer).
-demo-prepare: demo-env stage-plugin seed
+demo-prepare: demo-env stage-plugin seed state
+
+# Same as demo-prepare, but builds with Node inside Docker (servers without Node 24).
+demo-prepare-docker: demo-env build-docker seed state
+
+NODE_IMAGE ?= node:24
+build-docker:
+	docker run --rm -u "$$(id -u):$$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/.npm \
+	  -v "$(CURDIR)":/w -w /w $(NODE_IMAGE) sh -c 'npm ci --no-audit --no-fund && npm run build && \
+	  node scripts/stage-plugin.mjs $(STATE)/plugin/pipeline-investigator packages/plugin && \
+	  node scripts/stage-plugin.mjs $(STATE)/plugin/report-capture packages/report-capture'
+
+state:
 	@mkdir -p $(STATE)/incidents $(STATE)/airflow-auth $(STATE)/feedback
-	@set -a; source demo/.env; set +a; \
+	@set -a; source demo/.env; set +a; umask 077; \
 	  printf '{"admin": "%s", "investigator": "%s"}\n' "$$AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD" > $(STATE)/airflow-auth/passwords.json
 
 demo-up: demo-prepare
@@ -67,9 +79,19 @@ demo-logs:
 demo-tunnel:
 	cd demo && ./tunnel.sh
 
+# Live dashboard (internal worker port, localhost only).
+demo-dashboard:
+	@set -a; source demo/.env; set +a; url="http://localhost:$${WORKER_HOST_PORT:-8090}/dashboard"; \
+	  echo "Dashboard: $$url"; command -v open >/dev/null && open "$$url" || true
+
 # Feedback review for prompt tuning: make feedback-report [DAYS=30]
 feedback-report:
 	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
 
+# Stops and removes containers; keeps Airflow history (airflow-home volume) and demo/.state.
 demo-down:
+	$(COMPOSE) --profile tunnel --profile tunnel-quick down
+
+# Also deletes Airflow history (the airflow-home volume).
+demo-clean:
 	$(COMPOSE) --profile tunnel --profile tunnel-quick down -v

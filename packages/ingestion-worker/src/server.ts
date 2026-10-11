@@ -5,6 +5,8 @@ import { buildIncidentMessage } from "./buildMessage.js";
 import type { WorkerConfig } from "./config.js";
 import { FailureAggregator, selectRootTask } from "./dedupe.js";
 import type { DispatchResult, Dispatcher } from "./dispatcher.js";
+import { AccessVerifier, accessToken } from "./cfAccess.js";
+import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
 import { FeedbackStore } from "./feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "./incidentRef.js";
@@ -25,6 +27,8 @@ export type Worker = {
   server: Server;
   /** Public listener for the LINE webhook only (present when feedback is configured). */
   publicServer?: Server;
+  /** Public dashboard listener behind Cloudflare Access (present when CF_ACCESS_* is configured). */
+  dashboardServer?: Server;
   aggregator: FailureAggregator;
   investigate: (key: string, events: FailureEvent[]) => Promise<void>;
   store?: FeedbackStore;
@@ -36,6 +40,7 @@ export type WorkerDeps = {
   line?: LineClient;
   store?: FeedbackStore;
   now?: () => number;
+  accessVerifier?: Pick<AccessVerifier, "verify">;
 };
 
 export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: WorkerDeps = {}): Worker {
@@ -139,10 +144,27 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       investigate(key, events).catch((err) => log.error(`[worker] ${key}: investigation crashed: ${sanitize(String(err))}`)),
   });
 
+  /** Dashboard page + API. Returns false when the request is not a dashboard route. */
+  function serveDashboard(req: IncomingMessage, res: ServerResponse, send: ReturnType<typeof jsonSender>): boolean {
+    if (req.method !== "GET") return false;
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path === "/" || path === "/dashboard") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": DASHBOARD_CSP, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" });
+      res.end(dashboardHtml());
+      return true;
+    }
+    if (path === "/api/dashboard") {
+      handleDashboardApi(req, send);
+      return true;
+    }
+    return false;
+  }
+
   const server = createServer(async (req, res) => {
     const send = jsonSender(res);
     try {
       if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, pending: aggregator.pendingCount });
+      if (serveDashboard(req, res, send)) return;
       if (req.url === "/v1/openclaw/report") return await handleReport(req, send);
       if (req.url !== "/v1/airflow/failure") return send(404, { error: "not found" });
       if (req.method !== "POST") return send(405, { error: "method not allowed" });
@@ -167,6 +189,15 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       return send(500, { error: "internal error" });
     }
   });
+
+  /** Data for the live dashboard. Internal listener only: it includes report text. */
+  function handleDashboardApi(req: IncomingMessage, send: ReturnType<typeof jsonSender>): void {
+    if (!store) return send(200, { enabled: false });
+    const days = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("days") ?? 30);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) return send(400, { error: "days must be an integer between 1 and 3650" });
+    const since = now() - days * 24 * 3600 * 1000;
+    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now() }));
+  }
 
   /** Report text captured by the report-capture OpenClaw plugin (signed like Airflow callbacks). */
   async function handleReport(req: IncomingMessage, send: ReturnType<typeof jsonSender>): Promise<void> {
@@ -226,7 +257,29 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     });
   }
 
-  return { server, publicServer, aggregator, investigate, store };
+  // Public dashboard (dashboard.<domain> via the tunnel): dashboard routes only,
+  // and every request must carry a valid Cloudflare Access token for an allowed email.
+  let dashboardServer: Server | undefined;
+  if (cfg.dashboard) {
+    const verifier = deps.accessVerifier ?? new AccessVerifier(cfg.dashboard.access);
+    dashboardServer = createServer(async (req, res) => {
+      const send = jsonSender(res);
+      try {
+        const result = await verifier.verify(accessToken(req.headers));
+        if (!result.ok) {
+          log.warn(`[dashboard] denied ${req.method} ${new URL(req.url ?? "/", "http://localhost").pathname}: ${result.reason}`);
+          res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+          return void res.end("Forbidden: sign in through Cloudflare Access with an allowed account.\n");
+        }
+        if (!serveDashboard(req, res, send)) send(404, { error: "not found" });
+      } catch (err) {
+        log.error(`[dashboard] request failed: ${sanitize(String(err))}`);
+        send(500, { error: "internal error" });
+      }
+    });
+  }
+
+  return { server, publicServer, dashboardServer, aggregator, investigate, store };
 }
 
 function retryKey(seed: string): string {
