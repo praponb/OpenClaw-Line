@@ -24,6 +24,9 @@ export const configSchema = Type.Object(
     lineageMapPath: Type.Optional(Type.String({ description: "Optional Airflow task -> dbt node map. Env: LINEAGE_MAP_PATH." })),
     maxLogChars: Type.Optional(Type.Integer({ minimum: 1000, description: "Env: MAX_LOG_CHARS." })),
     databricksHost: Type.Optional(Type.String({ description: "Databricks workspace URL. Env: DATABRICKS_HOST." })),
+    databricksLineageCatalogs: Type.Optional(
+      Type.String({ description: "Comma-separated Unity Catalog catalogs for lineage; default: the run's \"catalog\" job parameter. Env: DATABRICKS_LINEAGE_CATALOGS." }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -43,7 +46,7 @@ export type ResolvedConfig = {
   lineageMapPath: string | undefined;
   maxLogChars: number;
   /** Read-only service principal (CAN_VIEW on the job) for get_databricks_run_error. */
-  databricks: { host: string; clientId: string; clientSecret: string } | undefined;
+  databricks: { host: string; clientId: string; clientSecret: string; lineageCatalogs: string[] } | undefined;
 };
 
 /** Credentials are only ever read from the environment. */
@@ -93,7 +96,17 @@ export function resolveConfig(cfg: PluginConfig = {}, env: Env = process.env): R
   const clientId = envOptional(env, "DATABRICKS_CLIENT_ID");
   const clientSecret = envOptional(env, "DATABRICKS_CLIENT_SECRET");
   const databricks =
-    databricksHost && clientId && clientSecret ? { host: databricksHost.replace(/\/+$/, ""), clientId, clientSecret } : undefined;
+    databricksHost && clientId && clientSecret
+      ? {
+          host: databricksHost.replace(/\/+$/, ""),
+          clientId,
+          clientSecret,
+          lineageCatalogs: (cfg.databricksLineageCatalogs ?? envOptional(env, "DATABRICKS_LINEAGE_CATALOGS") ?? "")
+            .split(",")
+            .map((c) => c.trim())
+            .filter((c) => /^[A-Za-z0-9_-]+$/.test(c)),
+        }
+      : undefined;
 
   const gitPathPrefixes = (cfg.gitPathPrefixes ?? envOptional(env, "GIT_PATH_PREFIXES") ?? "")
     .split(",")

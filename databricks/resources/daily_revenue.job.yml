@@ -14,8 +14,7 @@ resources:
       permissions:
         - level: CAN_MANAGE_RUN
           service_principal_name: ${var.airflow_runner_sp}
-        - level: CAN_VIEW
-          service_principal_name: ${var.investigator_reader_sp}
+        # The reader's CAN_VIEW comes from the top-level permissions in databricks.yml.
       tags:
         project: openclaw-line
         domain: finance

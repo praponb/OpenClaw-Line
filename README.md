@@ -133,6 +133,8 @@ One-time setup by hand: a GCS bucket, a Unity Catalog storage credential and ext
 
 Airflow side: DAG `databricks_daily_revenue` (manual for now; the `inject_fault` param passes through) starts the job with `DatabricksRunNowOperator`. The Airflow image adds the Databricks provider (`demo/airflow.Dockerfile`). Two service principals, both granted in the bundle: `DATABRICKS_RUNNER_*` (`CAN_MANAGE_RUN`) become Airflow's `databricks_default` connection; `DATABRICKS_READER_*` (`CAN_VIEW`) go to the gateway for `get_databricks_run_error` and to the worker, whose dashboard shows the job's latest runs and task states (`/api/pipeline`, cached 20 s). On failure, `notify_openclaw` adds the Databricks run id from XCom, and the investigator reads the failed Databricks task's error and trace instead of the Airflow log, which only links to the run.
 
+Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_databricks_run_error` maps each task to its notebook id (the reader has `CAN_READ` on the bundle's files via the bundle's top-level `permissions`), reads table lineage for the job's catalog (`catalog` job parameter, or `DATABRICKS_LINEAGE_CATALOGS`), and lists the tables each task writes, the tables this run left stale, everything further downstream, and other consumers (other jobs, dashboards, queries). The reader needs only `BROWSE` on the catalog (metadata and lineage, no data): `databricks grants update catalog <catalog> --json '{"changes":[{"principal":"<reader application id>","add":["BROWSE"]}]}'`. Lineage reflects past successful runs, so a brand-new table appears after its first successful write.
+
 ## Status
 
 | Area | State |

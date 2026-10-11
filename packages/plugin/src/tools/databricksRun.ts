@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import { DatabricksClient, filterLog, sanitize } from "@openclaw-line/shared";
 import type { ResolvedConfig } from "../config.js";
 import { toolError } from "./result.js";
+import { buildLineageSection } from "./ucLineage.js";
 
 export const databricksRunParams = Type.Object({
   run_id: Type.String({ description: "Databricks job run id (databricks_run_id in the incident message)", pattern: "^[0-9]{1,20}$" }),
@@ -11,7 +12,7 @@ export const databricksRunParams = Type.Object({
 export type DatabricksRunParams = Static<typeof databricksRunParams>;
 
 export const DATABRICKS_RUN_DESCRIPTION =
-  "Fetch the state of a Databricks job run and, for each failed task, its error message and error trace. Use when the incident has a databricks_run_id: the Airflow log only links to the run.";
+  "Fetch the state of a Databricks job run, each failed task's error message and trace, and the Unity Catalog lineage of the job's tables (what each task writes, which tables this run left stale, and what reads them downstream). Use when the incident has a databricks_run_id: the Airflow log only links to the run.";
 
 type Deps = { fetch?: typeof fetch; now?: () => number };
 
@@ -76,6 +77,19 @@ export async function getDatabricksRunError(params: DatabricksRunParams, cfg: Re
       );
     }
     if (failed.length > MAX_TASKS_WITH_OUTPUT) lines.push(`(${failed.length - MAX_TASKS_WITH_OUTPUT} more failed tasks not shown)`);
+
+    const catalogParam = run.job_parameters?.find((p) => p.name === "catalog");
+    const catalogs = cfg.databricks.lineageCatalogs.length
+      ? cfg.databricks.lineageCatalogs
+      : [catalogParam?.value ?? catalogParam?.default ?? ""].filter((c) => /^[A-Za-z0-9_-]+$/.test(c));
+    lines.push(
+      "",
+      await buildLineageSection(client, {
+        jobId: run.job_id,
+        catalogs,
+        tasks: tasks.map((t) => ({ taskKey: t.task_key, state: t.state?.result_state ?? t.state?.life_cycle_state ?? "?", notebookPath: t.notebook_task?.notebook_path })),
+      }),
+    );
     return lines.join("\n");
   } catch (err) {
     return toolError(`could not fetch Databricks run: ${sanitize((err as Error).message)}`);

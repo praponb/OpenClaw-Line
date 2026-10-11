@@ -214,6 +214,7 @@ describe("buildIncidentMessage", () => {
     expect(msg).toContain("databricks_run_id: 907227724231");
     expect(msg).toContain('Call get_databricks_run_error with run_id "907227724231"');
     expect(msg).not.toContain("If the excerpt lacks the full traceback");
+    expect(msg).toContain("UNITY CATALOG LINEAGE section");
   });
 });
 

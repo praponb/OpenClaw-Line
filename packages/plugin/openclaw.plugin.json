@@ -87,6 +87,10 @@
       "databricksHost": {
         "type": "string",
         "description": "Databricks workspace URL. Env: DATABRICKS_HOST."
+      },
+      "databricksLineageCatalogs": {
+        "type": "string",
+        "description": "Comma-separated Unity Catalog catalogs for lineage; default: the run's \"catalog\" job parameter. Env: DATABRICKS_LINEAGE_CATALOGS."
       }
     },
     "additionalProperties": false
