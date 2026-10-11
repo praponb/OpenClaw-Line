@@ -14,8 +14,7 @@ export type ForwarderConfig = {
 };
 
 export type SentEvent = { content?: string; success?: boolean; messageId?: string };
-/** sessionKey equals the one llm_output fires with (OpenClaw contract), linking usage to the report. */
-export type SentContext = { channelId?: string; sessionKey?: string };
+export type SentContext = { channelId?: string };
 type Log = { warn: (msg: string) => void; info?: (msg: string) => void };
 
 /** Short content hash of the prompt file, so feedback can be compared across prompt edits. */
@@ -38,7 +37,7 @@ export function createReportForwarder(cfg: ForwarderConfig, deps: { fetch?: type
     const content = event.content ?? "";
     const ref = REF_RE.exec(content)?.[1];
     if (!ref) return false;
-    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion, sessionKey: ctx?.sessionKey });
+    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion });
     const ts = String(Math.floor((deps.now ?? Date.now)() / 1000));
     try {
       const res = await (deps.fetch ?? fetch)(cfg.workerUrl, {
@@ -73,13 +72,18 @@ export type LlmOutputEvent = {
   provider?: string;
   model?: string;
   usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+  /** The model's text for this call; only the "Ref: INC-…" of the final report is read from it. */
+  assistantTexts?: string[];
 };
 export type AgentContext = { agentId?: string; runId?: string; sessionKey?: string };
 
 /**
- * `llm_output` observer: forward each model call's token usage, keyed by the
- * agent run id, so the worker can attribute model cost to the incident. No
- * prompt or output text is sent. Never throws.
+ * `llm_output` observer: forward each model call's token usage with the run's
+ * session key. The call that writes the report also carries its
+ * "Ref: INC-…", which links the whole session (all its calls) to the incident:
+ * for hook-started runs the delivery session (message_sent) is a different key,
+ * and the /hooks/agent runId is a job id, so neither can be joined. Only the
+ * ref is read from the model text; no prompt or output text is sent. Never throws.
  */
 export function createUsageForwarder(cfg: UsageForwarderConfig, deps: { fetch?: typeof fetch; log: Log; now?: () => number }) {
   return async (event: LlmOutputEvent, ctx: AgentContext | undefined): Promise<boolean> => {
@@ -91,6 +95,7 @@ export function createUsageForwarder(cfg: UsageForwarderConfig, deps: { fetch?: 
     const body = JSON.stringify({
       runId,
       sessionKey: ctx?.sessionKey,
+      ref: REF_RE.exec((event.assistantTexts ?? []).join("\n"))?.[1],
       provider: event.provider ?? "",
       model: event.model ?? "",
       input: n(u.input),
