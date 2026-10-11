@@ -155,7 +155,7 @@ Open items:
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), GitHub/GitLab provider with a read-only token, a production dbt manifest sync, the "data catalog" lineage option.
 - Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
 - Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.
-- A data-residency review for sending sanitized evidence to Moonshot.
+- Data residency: see [docs/data-residency.md](docs/data-residency.md). Before connecting real data, decide the Databricks region (now Mumbai), keep data values out of pipeline error messages, extend the sanitizer for Thai personal data, confirm Moonshot's API data terms, and set retention.
 - Spec details: execution time in the summary line; the callback sends `log_url` rather than `log_filepath`.
 
 ## Production notes
