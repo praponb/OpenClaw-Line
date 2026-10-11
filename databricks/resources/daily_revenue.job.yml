@@ -6,7 +6,15 @@ resources:
         Stripe-style payment events -> bronze (Auto Loader) -> silver transactions -> gold daily revenue.
         No schedule here: Airflow triggers it and owns retries and failure alerts.
       max_concurrent_runs: 1
+      # Standard serverless mode: slower start-up, lower cost than performance-optimized.
+      performance_target: STANDARD
       timeout_seconds: 3600
+      # Managed here, not in the UI: a deploy would overwrite UI changes.
+      permissions:
+        - level: CAN_MANAGE_RUN
+          service_principal_name: ${var.airflow_runner_sp}
+        - level: CAN_VIEW
+          service_principal_name: ${var.investigator_reader_sp}
       tags:
         project: openclaw-line
         domain: finance
