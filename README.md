@@ -16,6 +16,8 @@ Airflow on_failure_callback ──HMAC POST──▶ ingestion worker ──POST
                                                                                    LINE group (push)
 ```
 
+Docs: [operations runbook](docs/operations.md) (deploy, settings, identities, schedules, pitfalls) · [work log](docs/changelog.md) · [data residency](docs/data-residency.md)
+
 ## Layout
 
 | Path | What |
