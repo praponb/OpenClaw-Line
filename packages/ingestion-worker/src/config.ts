@@ -41,6 +41,8 @@ export type WorkerConfig = {
    * tunnel). Only started when Cloudflare Access verification is fully configured.
    */
   dashboard?: { port: number; access: AccessConfig };
+  /** "Test LINE" button: max test pushes per Bangkok day (each uses LINE push quota). */
+  dashboardTestDailyLimit: number;
   /** Databricks job status on the dashboard (read-only service principal). Off unless all four are set. */
   databricks?: PipelineStatusConfig;
 };
@@ -78,6 +80,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     feedback: loadFeedbackConfig(env),
     dashboard: loadDashboardConfig(env),
     databricks: loadDatabricksConfig(env),
+    dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
   };
 }
 

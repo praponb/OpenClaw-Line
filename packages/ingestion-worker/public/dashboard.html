@@ -55,6 +55,8 @@
   .kpi .hint { color: var(--faint); font-size: 12px; margin-top: 2px; }
   .banner { border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; background: var(--down-soft); color: var(--text); border: 1px solid var(--border); }
   .banner.err { background: var(--mis-soft); }
+  .banner.ok { background: var(--up-soft); }
+  .btn:disabled { opacity: .6; cursor: default; }
   /* pipeline flow */
   .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   .step { position: relative; background: var(--surface-2); border-radius: 10px; padding: 12px; }
@@ -150,11 +152,13 @@
       </div>
       <button class="btn" id="theme" title="Toggle light/dark">◐</button>
       <button class="btn" id="refresh">Refresh</button>
+      <button class="btn" id="test-line" title="Send one test message to the LINE group (uses one push from the monthly quota)">🔔 Test LINE</button>
       <div class="updated" id="updated" aria-live="polite"></div>
     </div>
   </header>
 
   <div id="banner"></div>
+  <div id="toast" aria-live="polite"></div>
 
   <section class="card" id="dbx-card" style="margin-bottom:16px" hidden>
     <h2>Databricks pipeline<a class="h2link" id="dbx-job" target="_blank" rel="noopener noreferrer"></a></h2>
@@ -525,6 +529,18 @@
     });
   });
   $("refresh").addEventListener("click", load);
+  $("test-line").addEventListener("click", function () {
+    var btn = $("test-line"), toast = clear($("toast"));
+    btn.disabled = true; btn.textContent = "Sending…";
+    fetch("api/test-notification", { method: "POST", headers: { "X-Dashboard-Action": "send-test" }, cache: "no-store" })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: "HTTP " + r.status }; }); })
+      .then(function (d) {
+        if (d.ok) toast.appendChild(h("div", { class: "banner ok" }, "Test message sent at " + fmtClock(d.sentAt) + " (Bangkok time). Check LINE on your phone. " + d.remainingToday + " test" + (d.remainingToday === 1 ? "" : "s") + " left today."));
+        else toast.appendChild(h("div", { class: "banner err" }, "Test not sent: " + (d.error || "unknown error")));
+      })
+      .catch(function (e) { toast.appendChild(h("div", { class: "banner err" }, "Test not sent: " + e.message)); })
+      .then(function () { setTimeout(function () { btn.disabled = false; btn.textContent = "🔔 Test LINE"; }, 3000); });
+  });
   $("theme").addEventListener("click", function () {
     var cur = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     var next = cur === "dark" ? "light" : "dark";

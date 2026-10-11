@@ -8,6 +8,7 @@ import type { DispatchResult, Dispatcher } from "./dispatcher.js";
 import { AccessVerifier, accessToken } from "./cfAccess.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { PipelineStatus } from "./pipelineStatus.js";
+import { TestNotifier, isSameOriginAction } from "./testNotification.js";
 import { fallbackMessage, feedbackCard } from "./feedback.js";
 import { FeedbackStore } from "./feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "./incidentRef.js";
@@ -53,6 +54,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const store = deps.store ?? (fb ? new FeedbackStore(fb.dbPath) : undefined);
   const line = deps.line ?? (fb ? new LineClient(fb.channelAccessToken, { baseUrl: fb.lineApiBaseUrl }) : undefined);
   const pipeline = deps.pipeline ?? (cfg.databricks ? new PipelineStatus(cfg.databricks, { now }) : undefined);
+  const testNotifier = new TestNotifier(line, cfg.openclaw.to, { now, dailyLimit: cfg.dashboardTestDailyLimit });
 
   async function investigate(key: string, events: FailureEvent[]): Promise<void> {
     const first = events[0]!;
@@ -148,9 +150,22 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   });
 
   /** Dashboard page + API. Returns false when the request is not a dashboard route. */
-  function serveDashboard(req: IncomingMessage, res: ServerResponse, send: ReturnType<typeof jsonSender>): boolean {
-    if (req.method !== "GET") return false;
+  function serveDashboard(req: IncomingMessage, res: ServerResponse, send: ReturnType<typeof jsonSender>, who = "internal"): boolean {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path === "/api/test-notification") {
+      if (req.method !== "POST") send(405, { error: "method not allowed" });
+      else if (!isSameOriginAction(req.headers)) send(403, { error: "forbidden" });
+      else
+        testNotifier.send().then(
+          (r) => {
+            log.info(`[dashboard] test notification by ${who}: ${r.ok ? "sent" : `${r.status} ${r.error}`}`);
+            send(r.ok ? 200 : r.status, r);
+          },
+          () => send(500, { error: "internal error" }),
+        );
+      return true;
+    }
+    if (req.method !== "GET") return false;
     if (path === "/" || path === "/dashboard") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": DASHBOARD_CSP, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" });
       res.end(dashboardHtml());
@@ -279,7 +294,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
           res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
           return void res.end("Forbidden: sign in through Cloudflare Access with an allowed account.\n");
         }
-        if (!serveDashboard(req, res, send)) send(404, { error: "not found" });
+        if (!serveDashboard(req, res, send, result.email)) send(404, { error: "not found" });
       } catch (err) {
         log.error(`[dashboard] request failed: ${sanitize(String(err))}`);
         send(500, { error: "internal error" });
