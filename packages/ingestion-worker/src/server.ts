@@ -344,7 +344,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       return send(401, { error: "invalid signature" });
     }
     if (!store) return send(202, { stored: false, reason: "feedback disabled" });
-    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown };
+    let r: { ref?: unknown; content?: unknown; messageId?: unknown; promptVersion?: unknown; success?: unknown; ungrounded?: unknown };
     try {
       r = JSON.parse(body);
     } catch {
@@ -359,6 +359,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       sentAt: now(),
       messageId: typeof r.messageId === "string" ? r.messageId.slice(0, 100) : undefined,
       promptVersion: typeof r.promptVersion === "string" ? r.promptVersion.slice(0, 64) : undefined,
+      ungrounded: Array.isArray(r.ungrounded) ? r.ungrounded.filter((x): x is string => typeof x === "string").slice(0, 20).map((x) => x.slice(0, 200)) : undefined,
     });
     if (!stored) log.warn(`[worker] report for unknown ref ${r.ref} ignored`);
     return send(stored ? 200 : 404, { stored });

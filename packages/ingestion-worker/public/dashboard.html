@@ -463,6 +463,7 @@
       h("dt", null, "Prompt"), h("dd", { class: "mono" }, i.promptVersion || "–"),
       i.usage ? [h("dt", null, "Tokens"), h("dd", null, fmtTokens(i.usage.input + i.usage.cacheRead) + " in (" + fmtTokens(i.usage.cacheRead) + " cached) · " + fmtTokens(i.usage.output) + " out · " + i.usage.calls + " model calls")] : null,
       i.costUsd !== null ? [h("dt", null, "Model cost"), h("dd", null, fmtUsd(i.costUsd) + " (estimate)")] : null,
+      i.ungrounded ? [h("dt", null, "Grounding"), h("dd", null, i.ungrounded.length ? "⚠️ Not found in the evidence: " + i.ungrounded.join("; ") : "✅ SHAs, paths and tables all found in the evidence")] : null,
       i.deliveryError ? [h("dt", null, "Delivery"), h("dd", null, i.deliveryError)] : null,
       i.replyDisposition && i.replyDisposition !== "visible" ? [h("dt", null, "Reply"), h("dd", null, i.replyDisposition)] : null,
       h("dt", null, "Feedback"), h("dd", null, voteCells(i)),

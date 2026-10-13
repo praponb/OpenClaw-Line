@@ -58,7 +58,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 |---|---|
 | Run the pipeline | Dashboard → Databricks card → **▶ Run pipeline** (normal run or a test fault). No schedule by choice. CLI alternative without Airflow or LINE: `make lakehouse-run [FAULT=schema_drift]`. |
 | Check LINE delivery | Dashboard → **🔔 Test LINE**. Uses one push from the monthly quota (300 on the current plan). |
-| Feedback review | `make feedback-report` (prompt versions, votes, triage time, MTTR). |
+| Feedback review | `make feedback-report` (prompt versions, votes, triage time, MTTR, grounding check). |
+| Live investigator tests | On the server: `make eval-live` (4 scenarios, about $0.40 and 8 LINE pushes) or `make eval-live SCENARIOS="huge_log"`. Prints PASS/FAIL per check. |
 | Resolve an incident | ✅ Resolved on the LINE card, or automatically when the DAG's next run succeeds (checked every 5 min). |
 | An alert email arrives | Heartbeat **down** with no ping: the worker or server is off (`ssh` in, `docker compose ps`). Heartbeat **down** after a `/fail`: the email shows the reason (gateway not ready, backup failed). **LINE** check down: the email shows the LINE error (expired token, quota used up); it goes up again with the next successful push, or use 🔔 Test LINE. |
 | Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |

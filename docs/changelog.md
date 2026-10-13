@@ -50,3 +50,4 @@ Live tests that day (all through Airflow → Databricks → investigator → LIN
 |---|---|
 | — | Work now happens on branch `b_pbv_main` (recreated from `main`), with PRs from it to `main`. |
 | — | **Reliability**: backup model Gemini 3.5 Flash, served as 3.6 Flash (`model.fallbacks`, priced separately on the dashboard); Healthchecks.io heartbeat (worker or server down, gateway not ready, backup failed) and LINE-push alerts; dedupe state saved in `feedback.db`, so a restart resumes grouping and doesn't re-investigate; daily `VACUUM INTO` backups of `feedback.db` (14 kept); `/healthz` shows `investigating`. |
+| — | **Quality**: grounding check in `report-capture` (SHAs, paths and tables in each report must appear in the incident message or tool results; a ⚠️ line lists the rest; stored and shown on the dashboard); test DAGs `investigator_scenarios` and `investigator_cascade` with `make eval-live`. |

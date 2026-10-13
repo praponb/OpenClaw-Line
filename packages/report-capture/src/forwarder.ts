@@ -31,13 +31,18 @@ export function promptVersionOf(path: string | undefined): string | undefined {
  * `message_sent` observer: forward investigator reports to the worker.
  * Observation only - never throws, never changes delivery.
  */
-export function createReportForwarder(cfg: ForwarderConfig, deps: { fetch?: typeof fetch; log: Log; now?: () => number }) {
+export function createReportForwarder(
+  cfg: ForwarderConfig,
+  deps: { fetch?: typeof fetch; log: Log; now?: () => number; ungrounded?: (ref: string) => string[] | undefined },
+) {
   return async (event: SentEvent, ctx: SentContext | undefined): Promise<boolean> => {
     if (ctx?.channelId && ctx.channelId !== cfg.channel) return false;
     const content = event.content ?? "";
     const ref = REF_RE.exec(content)?.[1];
     if (!ref) return false;
-    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion });
+    // undefined = grounding not checked (no evidence captured); [] = every claim was found.
+    const ungrounded = deps.ungrounded?.(ref);
+    const body = JSON.stringify({ ref, content, success: event.success !== false, messageId: event.messageId, promptVersion: cfg.promptVersion, ungrounded });
     const ts = String(Math.floor((deps.now ?? Date.now)() / 1000));
     try {
       const res = await (deps.fetch ?? fetch)(cfg.workerUrl, {

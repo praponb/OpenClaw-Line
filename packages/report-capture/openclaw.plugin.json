@@ -1,7 +1,7 @@
 {
   "id": "report-capture",
   "name": "Investigator Report Capture",
-  "description": "Forwards delivered pipeline-investigator reports (matched by their 'Ref: INC-…' line) and the investigator's token usage to the ingestion worker (feedback log, cost tracking).",
+  "description": "Forwards delivered pipeline-investigator reports (matched by their 'Ref: INC-…' line) and the investigator's token usage to the ingestion worker (feedback log, cost tracking), and warns in the report when a commit SHA, file path or table name is not in the investigator's evidence.",
   "version": "0.1.0",
   "activation": {
     "onStartup": true

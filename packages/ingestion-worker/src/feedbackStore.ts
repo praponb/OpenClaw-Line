@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS incidents (
   resolved_by       TEXT,
   agent_run_id      TEXT,
   session_key       TEXT,
-  report_pruned_at  INTEGER
+  report_pruned_at  INTEGER,
+  ungrounded        TEXT
 );
 CREATE TABLE IF NOT EXISTS model_usage (
   run_id      TEXT NOT NULL,
@@ -102,6 +103,8 @@ export type IncidentRow = {
   session_key: string | null;
   /** When the report text was removed by retention (metrics stay). */
   report_pruned_at: number | null;
+  /** Grounding check: JSON list of SHAs/paths/tables not found in the evidence; "[]" = all found; null = not checked. */
+  ungrounded: string | null;
 };
 
 export type TokenCounts = { input: number; output: number; cacheRead: number; cacheWrite: number };
@@ -119,6 +122,7 @@ const MIGRATIONS: [string, string][] = [
   ["agent_run_id", "TEXT"],
   ["session_key", "TEXT"],
   ["report_pruned_at", "INTEGER"],
+  ["ungrounded", "TEXT"],
 ];
 
 export type FeedbackRow = { ref: string; voter: string; rating: Rating | null; reason: Reason | null; created_at: number; updated_at: number };
@@ -205,10 +209,12 @@ export class FeedbackStore implements DedupeStore {
   }
 
   /** Report text captured by the report-capture plugin (may arrive before the hook completion). */
-  recordReport(ref: string, r: { text: string; sentAt: number; messageId?: string; promptVersion?: string }): boolean {
+  recordReport(ref: string, r: { text: string; sentAt: number; messageId?: string; promptVersion?: string; ungrounded?: string[] }): boolean {
     const res = this.db
-      .prepare(`UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version) WHERE ref = ?`)
-      .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, ref);
+      .prepare(
+        `UPDATE incidents SET report_text = ?, report_sent_at = ?, report_message_id = ?, prompt_version = COALESCE(?, prompt_version), ungrounded = ? WHERE ref = ?`,
+      )
+      .run(r.text, r.sentAt, r.messageId ?? null, r.promptVersion ?? null, r.ungrounded ? JSON.stringify(r.ungrounded) : null, ref);
     return Number(res.changes) > 0;
   }
 

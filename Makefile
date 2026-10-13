@@ -2,7 +2,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
 STATE := demo/.state
 
-.PHONY: airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
+.PHONY: airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report eval-live demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
 
 install:
 	npm install
@@ -92,6 +92,12 @@ demo-dashboard:
 # Feedback review for prompt tuning: make feedback-report [DAYS=30]
 feedback-report:
 	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
+
+# Live investigator tests (test DAGs investigator_scenarios / investigator_cascade):
+# each scenario is a real investigation (model cost + 2 LINE pushes). Run on the Docker host.
+# make eval-live, or make eval-live SCENARIOS="prompt_injection cascade"
+eval-live:
+	python3 demo/eval_live.py $(SCENARIOS)
 
 # Stops and removes containers; keeps Airflow history (airflow-home volume) and demo/.state.
 demo-down:
