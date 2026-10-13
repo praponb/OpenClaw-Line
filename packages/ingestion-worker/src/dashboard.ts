@@ -10,6 +10,25 @@ export function usageCostUsd(u: Pick<ModelUsage, "input" | "output" | "cacheRead
   return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1e6;
 }
 
+export type FallbackPrices = { model: string; prices: ModelPrices };
+
+/**
+ * USD for an incident whose calls may be split across the primary and the fallback
+ * model. Calls by the fallback model use its prices; everything else (and every call
+ * when no fallback prices are configured) uses the primary prices.
+ */
+export function incidentCostUsd(u: ModelUsage, prices: ModelPrices | null, fallback: FallbackPrices | null = null): number | null {
+  if (!prices) return null;
+  if (!u.byModel?.length) return usageCostUsd(u, prices);
+  return u.byModel.reduce((usd, part) => usd + usageCostUsd(part, fallback && isModel(part.model, fallback.model) ? fallback.prices : prices), 0);
+}
+
+/** Usage rows say "provider/model"; config may name the model with or without the provider. */
+function isModel(used: string | null, configured: string | undefined): boolean {
+  if (!used || !configured) return false;
+  return used === configured || used.split("/").pop() === configured.split("/").pop();
+}
+
 /**
  * Live dashboard (internal listener only): JSON for /api/dashboard plus the
  * static page. Voter hashes are never exposed; report text is returned as
@@ -71,7 +90,7 @@ const helpful = (v: Record<Rating, number>): number | null => {
 export function buildDashboardData(
   incidents: IncidentRow[],
   feedback: FeedbackRow[],
-  opts: { days: number; now: number; usage?: Map<string, ModelUsage>; prices?: ModelPrices | null },
+  opts: { days: number; now: number; usage?: Map<string, ModelUsage>; prices?: ModelPrices | null; fallbackPrices?: FallbackPrices | null },
 ): DashboardData {
   const prices = opts.prices ?? null;
   const byRef = new Map<string, FeedbackRow[]>();
@@ -87,6 +106,7 @@ export function buildDashboardData(
     }
     const state: IncidentState = i.completed_at === null ? "running" : i.status === "ok" && i.delivered === 1 ? "delivered" : "failed";
     const reportAt = i.report_sent_at ?? i.completed_at;
+    const usage = opts.usage?.get(i.ref) ?? null;
     return {
       ref: i.ref,
       dagId: i.dag_id,
@@ -96,15 +116,16 @@ export function buildDashboardData(
       status: i.status,
       deliveryError: i.delivery_error,
       replyDisposition: i.reply_disposition,
-      model: i.model,
+      // The models that actually answered (fallback included); the configured label until usage arrives.
+      model: usage?.model ?? i.model,
       promptVersion: i.prompt_version,
       firstSeenAt: i.first_seen_at,
       dispatchedAt: i.dispatched_at,
       reportSentAt: i.report_sent_at,
       completedAt: i.completed_at,
       triageSeconds: state === "delivered" && i.first_seen_at && reportAt ? Math.round((reportAt - i.first_seen_at) / 100) / 10 : null,
-      usage: opts.usage?.get(i.ref) ?? null,
-      costUsd: prices && opts.usage?.get(i.ref) ? usageCostUsd(opts.usage.get(i.ref)!, prices) : null,
+      usage,
+      costUsd: usage ? incidentCostUsd(usage, prices, opts.fallbackPrices ?? null) : null,
       resolvedAt: i.resolved_at,
       resolution: i.resolution,
       resolveSeconds: i.resolved_at && (i.first_seen_at ?? i.dispatched_at) ? Math.max(0, Math.round((i.resolved_at - (i.first_seen_at ?? i.dispatched_at)!) / 1000)) : null,

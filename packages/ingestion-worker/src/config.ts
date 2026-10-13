@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
+import { dirname, join } from "node:path";
 import { envBool, envInt, envOptional, envString, type Env } from "@openclaw-line/shared";
+import type { AlertsConfig } from "./alerts.js";
 import { normalizeTeamDomain, type AccessConfig } from "./cfAccess.js";
 import type { PipelineStatusConfig } from "./pipelineStatus.js";
 import type { TriggerConfig } from "./pipelineTrigger.js";
@@ -36,6 +38,8 @@ export type WorkerConfig = {
     dbPath: string;
     /** Recorded with each incident; the gateway's agent config decides the model actually used. */
     modelLabel?: string;
+    /** Daily `VACUUM INTO` copies of dbPath; keep = number of daily files (0 = off). */
+    backup: { dir: string; keep: number };
   };
   /**
    * Public dashboard listener (e.g. dashboard.example.com through the Cloudflare
@@ -45,7 +49,11 @@ export type WorkerConfig = {
   /** "▶ Run pipeline" on the dashboard: separate Airflow account allowed to create DAG runs. Off unless its password is set. */
   pipelineTrigger?: TriggerConfig;
   /** Model prices in USD per million tokens, for the cost estimate; null = not configured (tokens only). */
-  modelPrices: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
+  modelPrices: ModelPriceConfig | null;
+  /** Prices for the gateway's fallback model (OPENCLAW_FALLBACK_MODEL); calls by that model use these. */
+  fallbackPrices: { model: string; prices: ModelPriceConfig } | null;
+  /** Healthchecks.io ping URLs (each optional) and the heartbeat interval in seconds. */
+  alerts: AlertsConfig & { heartbeatSeconds: number };
   /** Retention: days to keep incident report text (0 = keep forever). */
   reportRetentionDays: number;
   /** MTTR: how often to check Airflow for a later successful run of open incidents (seconds; 0 = off). */
@@ -55,6 +63,8 @@ export type WorkerConfig = {
   /** Databricks job status on the dashboard (read-only service principal). Off unless all four are set. */
   databricks?: PipelineStatusConfig;
 };
+
+type ModelPriceConfig = { input: number; output: number; cacheRead: number; cacheWrite: number };
 
 export function loadConfig(env: Env = process.env): WorkerConfig {
   const dryRun = envBool(env, "DRY_RUN");
@@ -92,7 +102,13 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     dashboardTestDailyLimit: envInt(env, "DASHBOARD_TEST_DAILY_LIMIT", 10),
     resolutionPollSeconds: envInt(env, "RESOLUTION_POLL_S", 300),
     reportRetentionDays: envInt(env, "REPORT_RETENTION_DAYS", 180),
-    modelPrices: loadModelPrices(env),
+    modelPrices: loadModelPrices(env, "MODEL_PRICE"),
+    fallbackPrices: loadFallbackPrices(env),
+    alerts: {
+      heartbeatUrl: pingUrl(env, "HEALTHCHECK_URL"),
+      lineUrl: pingUrl(env, "HEALTHCHECK_LINE_URL"),
+      heartbeatSeconds: envInt(env, "HEALTHCHECK_INTERVAL_S", 300),
+    },
     pipelineTrigger:
       airflowUrl && envOptional(env, "AIRFLOW_TRIGGER_PASSWORD")
         ? {
@@ -106,7 +122,19 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
   };
 }
 
-function loadModelPrices(env: Env): WorkerConfig["modelPrices"] {
+function pingUrl(env: Env, name: string): string | undefined {
+  const v = envOptional(env, name);
+  if (v !== undefined && !/^https:\/\/[^\s]+$/.test(v)) throw new Error(`${name} must be an https:// ping URL`);
+  return v;
+}
+
+function loadFallbackPrices(env: Env): WorkerConfig["fallbackPrices"] {
+  const model = envOptional(env, "OPENCLAW_FALLBACK_MODEL");
+  const prices = loadModelPrices(env, "FALLBACK_MODEL_PRICE");
+  return model && prices ? { model, prices } : null;
+}
+
+function loadModelPrices(env: Env, prefix: string): ModelPriceConfig | null {
   const num = (name: string) => {
     const v = envOptional(env, name);
     if (v === undefined) return undefined;
@@ -114,11 +142,11 @@ function loadModelPrices(env: Env): WorkerConfig["modelPrices"] {
     if (!Number.isFinite(n) || n < 0) throw new Error(`${name} must be a non-negative number (USD per million tokens), got "${v}"`);
     return n;
   };
-  const input = num("MODEL_PRICE_INPUT_PER_MTOK");
-  const output = num("MODEL_PRICE_OUTPUT_PER_MTOK");
+  const input = num(`${prefix}_INPUT_PER_MTOK`);
+  const output = num(`${prefix}_OUTPUT_PER_MTOK`);
   if (input === undefined || output === undefined) return null;
   // Cache reads default to the input price (conservative) unless set.
-  return { input, output, cacheRead: num("MODEL_PRICE_CACHE_READ_PER_MTOK") ?? input, cacheWrite: num("MODEL_PRICE_CACHE_WRITE_PER_MTOK") ?? input };
+  return { input, output, cacheRead: num(`${prefix}_CACHE_READ_PER_MTOK`) ?? input, cacheWrite: num(`${prefix}_CACHE_WRITE_PER_MTOK`) ?? input };
 }
 
 function loadDatabricksConfig(env: Env): WorkerConfig["databricks"] {
@@ -147,6 +175,7 @@ function loadFeedbackConfig(env: Env): WorkerConfig["feedback"] {
   if (envBool(env, "FEEDBACK_DISABLED") || !token || !secret || token === "unset" || secret === "unset") return undefined;
   // Default the feedback keys from WEBHOOK_SECRET so no extra secrets are required.
   const derive = (label: string) => createHmac("sha256", envString(env, "WEBHOOK_SECRET")).update(label).digest("hex");
+  const dbPath = envString(env, "FEEDBACK_DB_PATH", "./data/feedback.db");
   return {
     channelAccessToken: token,
     channelSecret: secret,
@@ -154,7 +183,8 @@ function loadFeedbackConfig(env: Env): WorkerConfig["feedback"] {
     publicPort: envInt(env, "PUBLIC_PORT", 8091),
     signingKey: envOptional(env, "FEEDBACK_SIGNING_KEY") ?? derive("feedback-postback-signing"),
     userSalt: envOptional(env, "FEEDBACK_USER_SALT") ?? derive("feedback-user-salt"),
-    dbPath: envString(env, "FEEDBACK_DB_PATH", "./data/feedback.db"),
+    dbPath,
     modelLabel: envOptional(env, "OPENCLAW_MODEL_LABEL") ?? envOptional(env, "OPENCLAW_MODEL"),
+    backup: { dir: envString(env, "FEEDBACK_BACKUP_DIR", join(dirname(dbPath), "backups")), keep: envInt(env, "FEEDBACK_BACKUP_KEEP", 14) },
   };
 }

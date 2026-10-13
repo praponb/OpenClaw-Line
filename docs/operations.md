@@ -23,9 +23,9 @@ ssh prapon@192.168.1.49 'cd OpenClaw-Line && make demo-prepare-docker && \
 make lakehouse-deploy   # Databricks job, from the Mac
 ```
 
-- **Never overwrite the server's `demo/.env`**, and check that no incident is pending first: `GET http://localhost:8080/healthz` in the worker should show `"pending": 0`. A restart drops incidents still being grouped.
+- **Never overwrite the server's `demo/.env`**, and check that no investigation is running first: `GET http://localhost:8080/healthz` in the worker should show `"investigating": 0`. Incidents still being grouped (`pending`) are saved and resume after the restart; an investigation in progress is not (its report reaches LINE, but the feedback card is lost).
 - **The worker image copies a pre-built `dist/`,** so the server must run `make demo-prepare-docker` (Node runs in a container) before `--build`.
-- **Before a change to the incident log schema,** back up the database with SQLite `VACUUM INTO` from inside the worker container.
+- **Before a change to the incident log schema,** make a fresh copy even though daily backups exist: `docker compose --env-file demo/.env -f demo/docker-compose.yml exec ingestion-worker node -e 'new (require("node:sqlite").DatabaseSync)("/data/feedback.db").exec("VACUUM INTO \x27/data/backups/pre-change.db\x27")'`.
 - **Airflow DAGs and plugins are bind-mounted;** rsync is enough for them. Restart Airflow only when its environment changes.
 
 ## Settings in the server's `demo/.env` (names only)
@@ -33,6 +33,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Group | Variables |
 |---|---|
 | Model | `MOONSHOT_API_KEY`, `MOONSHOT_BASE_URL` (international), `OPENCLAW_MODEL=moonshot/kimi-k3`, `MODEL_PRICE_INPUT_PER_MTOK=3.00`, `MODEL_PRICE_OUTPUT_PER_MTOK=15.00`, `MODEL_PRICE_CACHE_READ_PER_MTOK=0.30` (official Kimi K3 prices) |
+| Backup model | `GEMINI_API_KEY` (Google AI Studio, billing on); `OPENCLAW_FALLBACK_MODEL` defaults to `google/gemini-3.5-flash` (served as Gemini 3.6 Flash); `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=0.75`, `FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK=3.75`, `FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK=0.075` (paid tier through 2026-12-31; **double from 2027-01-01**: 1.50 / 7.50 / 0.15) |
+| Alerts | `HEALTHCHECK_URL` (heartbeat check), `HEALTHCHECK_LINE_URL` (LINE check); Healthchecks.io ping URLs |
 | LINE | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, `LINE_TARGET_ID` (a personal chat, `U…`) |
 | Airflow | `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_VIEWER_PASSWORD` (investigator, read-only), `AIRFLOW_TRIGGER_PASSWORD` (dashboard Run pipeline account), `AIRFLOW_UID=1000`, `AIRFLOW_BIND_ADDRESS`, `AIRFLOW_PUBLIC_URL=https://airflow.praponb.com` |
 | Databricks | `DATABRICKS_HOST`, `DATABRICKS_JOB_ID=954973835355130`, `DATABRICKS_RUNNER_CLIENT_ID/SECRET` (Airflow only), `DATABRICKS_READER_CLIENT_ID/SECRET` (gateway and worker). OAuth secrets expire **2027-10-11**. |
@@ -58,6 +60,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Check LINE delivery | Dashboard → **🔔 Test LINE**. Uses one push from the monthly quota (300 on the current plan). |
 | Feedback review | `make feedback-report` (prompt versions, votes, triage time, MTTR). |
 | Resolve an incident | ✅ Resolved on the LINE card, or automatically when the DAG's next run succeeds (checked every 5 min). |
+| An alert email arrives | Heartbeat **down** with no ping: the worker or server is off (`ssh` in, `docker compose ps`). Heartbeat **down** after a `/fail`: the email shows the reason (gateway not ready, backup failed). **LINE** check down: the email shows the LINE error (expired token, quota used up); it goes up again with the next successful push, or use 🔔 Test LINE. |
+| Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |
 | Costs | Dashboard Costs card. About $0.06–0.10 per investigation at Kimi K3 prices; Databricks compute minutes this month; LINE messages against the quota. |
 
 ## Scheduled jobs (retention)
@@ -67,6 +71,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | 03:00 daily | Airflow DAG `housekeeping`: task logs older than 30 days. |
 | 03:15 daily | Server crontab (user `prapon`): `make -s airflow-db-clean` (Airflow metadata older than 90 days); output in `demo/.state/airflow-db-clean.log`. The line sets `PATH=/usr/local/bin:…` because docker lives there. |
 | Every worker day | Report text older than 180 days removed (`REPORT_RETENTION_DAYS`). |
+| Once per Bangkok day (checked hourly and at start) | Worker copies `feedback.db` to `demo/.state/feedback/backups/feedback-YYYY-MM-DD.db`; keeps 14. |
+| Every 5 min | Worker heartbeat to Healthchecks.io (gateway `/readyz` and last backup checked). |
 | After every Databricks run | Job task `housekeeping`: landing folders older than 90 days, `VACUUM` on bronze, silver and gold (about 70 s). |
 
 ## Pitfalls and fixes

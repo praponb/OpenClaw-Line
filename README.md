@@ -47,7 +47,7 @@ Docs: [operations runbook](docs/operations.md) (deploy, settings, identities, sc
 |---|---|
 | Log explosion | `shared/logFilter.ts` keeps the last 300 lines plus earlier `ERROR`/`CRITICAL`/`Traceback`/`FAILED` lines and full tracebacks, under a hard character cap. It runs in the worker and in the log tool. |
 | Credential/PII leakage | `shared/sanitize.ts` masks JWTs, bearer tokens, connection-string passwords, key=value secrets, cloud and SaaS keys, emails and card numbers. It runs on every exception, log and diff before the model sees it. |
-| Flapping/cascades | `ingestion-worker/dedupe.ts` waits a debounce window per run. It root-causes only the earliest failed task with no failed ancestor; the other failures become blast radius. Each run is handled once (TTL plus an idempotency key). |
+| Flapping/cascades | `ingestion-worker/dedupe.ts` waits a debounce window per run. It root-causes only the earliest failed task with no failed ancestor; the other failures become blast radius. Each run is handled once (TTL plus an idempotency key), also across worker restarts. |
 | Session bleed | The worker never sends a `sessionKey`, so each run gets a fresh `isolated` session. |
 
 ## Develop
@@ -91,6 +91,12 @@ What happens in the demo:
 - To switch models, change `OPENCLAW_MODEL` (for example `moonshot/kimi-k2.7-code`). Any other provider also needs its plugin and a `models.providers` entry.
 - The Moonshot plugin also registers a Kimi `web_search` tool. The investigator's tool policy still denies `group:web`.
 - Incident evidence goes to Moonshot's API after sanitization. Check that this fits your data-handling and residency rules, especially for the China endpoint.
+- **Backup model:** when Kimi K3 fails (outage, rate limit, auth error) after OpenClaw's own retries, the run continues on `OPENCLAW_FALLBACK_MODEL` (default `google/gemini-3.5-flash`, which Google now serves as Gemini 3.6 Flash; listed under the investigator's `model.fallbacks`). Google Gemini is a bundled OpenClaw provider; set `GEMINI_API_KEY` (a Google AI Studio key from a project with billing on, so content isn't used for training). The fallback applies to that run only; the next incident starts on Kimi K3 again. The dashboard shows which model(s) answered each incident, and prices fallback calls with `FALLBACK_MODEL_PRICE_*`.
+
+### Reliability
+- **Restarts don't drop or repeat incidents:** with the incident log on, failure callbacks still being grouped and the runs already investigated are kept in `feedback.db` (`dedupe_pending`, `dedupe_flushed`). A restarted worker resumes the open windows (a window that closed while it was down is investigated right away) and still ignores late callbacks for runs it has handled. An investigation already in progress during a restart isn't resumed: OpenClaw still delivers its report, but the feedback card is lost. `GET /healthz` shows `pending` and `investigating`.
+- **Alerts (Healthchecks.io):** the worker pings `HEALTHCHECK_URL` every `HEALTHCHECK_INTERVAL_S` (300 s). Missing pings mean the worker, the server or its internet connection is down; a `/fail` ping means the gateway's `/readyz` isn't OK or the last backup failed. `HEALTHCHECK_LINE_URL` gets `/fail` when a LINE push (by the worker, or the gateway's report delivery) fails, and a success ping when one goes through. Healthchecks.io emails on each change. Ping bodies hold refs and error text only.
+- **Backups:** once per Bangkok day the worker writes `feedback-YYYY-MM-DD.db` with SQLite `VACUUM INTO` (a consistent copy while it runs) to `FEEDBACK_BACKUP_DIR` (default `backups/` next to the database, i.e. `demo/.state/feedback/backups`) and keeps the newest `FEEDBACK_BACKUP_KEEP` (14; 0 = off). They live on the same disk, so they cover corruption and mistakes, not disk loss.
 
 ### LINE setup
 1. In the LINE Developers Console, create a Messaging API channel. Copy its channel access token and channel secret into `demo/.env`.
@@ -152,10 +158,10 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 | Phase 3 (feedback buttons, feedback log, prompt-version tracking) | Done; triage time and resolution time (MTTR) are measured |
 | Dashboard | Live view with Cloudflare Access for public hostnames |
 | Deployment | Linux server with Docker; named Cloudflare tunnel for the LINE webhook, dashboard and Airflow UI |
+| Reliability | Backup model, Healthchecks.io alerts, dedupe state that survives restarts, daily feedback-log backups |
 
 Open items:
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
-- Reliability: backup model, alerting when the worker is down or a LINE push fails, persistent dedupe state, SQLite feedback-log backups.
 - Quality: live tests for "Insufficient evidence", prompt injection in logs, very large logs and big cascades; an automatic check that every SHA, path and name in a report appears in the tool results.
 - Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Before connecting real data: get a written no-training agreement from Moonshot (or switch model provider), and record or move the Databricks region (now Mumbai).
 - Retention: `REPORT_RETENTION_DAYS` (default 180) for incident report text; Airflow DAG `housekeeping` (daily 03:00 Bangkok) deletes task logs after `AIRFLOW_LOG_RETENTION_DAYS` (30); the Databricks job's `housekeeping` task deletes landing folders after `landing_retention_days` (90) and runs `VACUUM` (7 days). Airflow metadata older than `AIRFLOW_METADATA_RETENTION_DAYS` (90) is removed with `make airflow-db-clean`, run daily at 03:15 by the server's crontab (see the Makefile for the line). Airflow 3 tasks can't reach the metadata DB, so it isn't part of the DAG.
@@ -169,4 +175,4 @@ Open items:
 - Don't set `tools.profile` on the investigator agent. Profiles are applied before `allow` and none of them include plugin tools, so runs fail with "No callable tools remain…".
 - Keep the Gateway port private. Its token is an operator credential.
 - Publish only the worker's public listener (`PUBLIC_PORT`, `/line/webhook`) through a named Cloudflare tunnel or your ingress. Keep the internal port (Airflow callbacks, report capture) private.
-- The feedback log is a single-writer SQLite file: run one worker replica and back up `FEEDBACK_DB_PATH`.
+- The feedback log is a single-writer SQLite file: run one worker replica. The daily backups stay on the same disk; copy `demo/.state/feedback/backups` off the server if you need protection from disk loss.

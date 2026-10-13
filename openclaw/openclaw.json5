@@ -75,6 +75,8 @@
   // (installed into the gateway image at build time). The plugin supplies the model
   // catalog; this block only sets the endpoint and key.
   // MOONSHOT_BASE_URL: https://api.moonshot.ai/v1 (international) or https://api.moonshot.cn/v1 (China).
+  // The fallback model's provider (Google Gemini) is bundled with OpenClaw and reads
+  // GEMINI_API_KEY from the environment, so it needs no entry here.
   models: {
     mode: "merge",
     providers: {
@@ -109,7 +111,13 @@
       "pipeline-investigator": {
         name: "Pipeline Incident Investigator",
         workspace: "/opt/openclaw/workspace-investigator",
-        model: { primary: "${OPENCLAW_MODEL}" }, // moonshot/kimi-k3
+        // Backup model: OpenClaw switches to it for the run when the primary fails
+        // (outage, rate limit, auth error) after its own retries. Agent entries are
+        // strict unless they list their own fallbacks. Needs GEMINI_API_KEY.
+        model: {
+          primary: "${OPENCLAW_MODEL}", // moonshot/kimi-k3
+          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google/gemini-3.5-flash
+        },
         skills: [],
         // Read-only enforcement at the platform level: the investigator only
         // sees its four read-only plugin tools. Deny wins over allow.
