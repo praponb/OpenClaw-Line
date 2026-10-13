@@ -220,33 +220,33 @@ describe("DailyBackup", () => {
 
 describe("fallback model cost", () => {
   const kimi = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 };
-  const sonnet = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 };
+  const gemini = { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75 };
 
   it("prices each model's calls at its own rate and shows which models answered", () => {
     const s = new FeedbackStore(":memory:");
     s.recordDispatch({ ref: "INC-AAAAAA", incidentKey: "k", dagId: "d", taskId: "t", runId: "r", dispatchedAt: 2000, model: "moonshot/kimi-k3" });
     s.setAgentRunId("INC-AAAAAA", "run-1");
     s.recordModelUsage({ runId: "run-1", provider: "moonshot", model: "kimi-k3", input: 1000, output: 0, cacheRead: 0, cacheWrite: 0 }, 3000);
-    s.recordModelUsage({ runId: "run-1", provider: "anthropic", model: "claude-sonnet-5-5", input: 10_000, output: 2_000, cacheRead: 0, cacheWrite: 1_000 }, 4000);
+    s.recordModelUsage({ runId: "run-1", provider: "google", model: "gemini-3.5-flash", input: 10_000, output: 2_000, cacheRead: 0, cacheWrite: 1_000 }, 4000);
     const usage = s.usageSince(0).get("INC-AAAAAA")!;
-    expect(usage).toMatchObject({ input: 11_000, output: 2_000, calls: 2, model: "anthropic/claude-sonnet-5-5, moonshot/kimi-k3" });
+    expect(usage).toMatchObject({ input: 11_000, output: 2_000, calls: 2, model: "google/gemini-3.5-flash, moonshot/kimi-k3" });
 
-    const fallback = { model: "anthropic/claude-sonnet-5-5", prices: sonnet };
-    const expected = (1000 * 3 + 10_000 * 2 + 2_000 * 10 + 1_000 * 2.5) / 1e6;
+    const fallback = { model: "google/gemini-3.5-flash", prices: gemini };
+    const expected = (1000 * 3 + 10_000 * 0.75 + 2_000 * 3.75 + 1_000 * 0.75) / 1e6;
     expect(incidentCostUsd(usage, kimi, fallback)).toBeCloseTo(expected);
-    expect(incidentCostUsd(usage, kimi, { model: "claude-sonnet-5-5", prices: sonnet })).toBeCloseTo(expected);
+    expect(incidentCostUsd(usage, kimi, { model: "gemini-3.5-flash", prices: gemini })).toBeCloseTo(expected);
     expect(incidentCostUsd(usage, kimi, null)).toBeCloseTo((11_000 * 3 + 2_000 * 15 + 1_000 * 3) / 1e6);
     expect(incidentCostUsd(usage, null, fallback)).toBeNull();
 
     const d = buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage: s.usageSince(0), prices: kimi, fallbackPrices: fallback });
-    expect(d.incidents[0]).toMatchObject({ model: "anthropic/claude-sonnet-5-5, moonshot/kimi-k3" });
+    expect(d.incidents[0]).toMatchObject({ model: "google/gemini-3.5-flash, moonshot/kimi-k3" });
     expect(d.incidents[0]!.costUsd).toBeCloseTo(expected);
     expect(d.modelCost.usd).toBeCloseTo(expected);
   });
 
   it("reads fallback prices only together with the fallback model", () => {
-    const prices = { FALLBACK_MODEL_PRICE_INPUT_PER_MTOK: "2", FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK: "10", FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK: "0.2", FALLBACK_MODEL_PRICE_CACHE_WRITE_PER_MTOK: "2.5" };
+    const prices = { FALLBACK_MODEL_PRICE_INPUT_PER_MTOK: "0.75", FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK: "3.75", FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK: "0.075" };
     expect(loadConfig({ ...env, ...prices }).fallbackPrices).toBeNull();
-    expect(loadConfig({ ...env, ...prices, OPENCLAW_FALLBACK_MODEL: "anthropic/claude-sonnet-5-5" }).fallbackPrices).toEqual({ model: "anthropic/claude-sonnet-5-5", prices: sonnet });
+    expect(loadConfig({ ...env, ...prices, OPENCLAW_FALLBACK_MODEL: "google/gemini-3.5-flash" }).fallbackPrices).toEqual({ model: "google/gemini-3.5-flash", prices: gemini });
   });
 });

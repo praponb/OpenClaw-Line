@@ -33,7 +33,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Group | Variables |
 |---|---|
 | Model | `MOONSHOT_API_KEY`, `MOONSHOT_BASE_URL` (international), `OPENCLAW_MODEL=moonshot/kimi-k3`, `MODEL_PRICE_INPUT_PER_MTOK=3.00`, `MODEL_PRICE_OUTPUT_PER_MTOK=15.00`, `MODEL_PRICE_CACHE_READ_PER_MTOK=0.30` (official Kimi K3 prices) |
-| Backup model | `ANTHROPIC_API_KEY`; `OPENCLAW_FALLBACK_MODEL` defaults to `anthropic/claude-sonnet-5-5`; `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=2`, `FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK=10`, `FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK=0.2`, `FALLBACK_MODEL_PRICE_CACHE_WRITE_PER_MTOK=2.5` (Sonnet 5.5 list prices) |
+| Backup model | `GEMINI_API_KEY` (Google AI Studio, billing on); `OPENCLAW_FALLBACK_MODEL` defaults to `google/gemini-3.5-flash` (served as Gemini 3.6 Flash); `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=0.75`, `FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK=3.75`, `FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK=0.075` (paid tier through 2026-12-31; **double from 2027-01-01**: 1.50 / 7.50 / 0.15) |
 | Alerts | `HEALTHCHECK_URL` (heartbeat check), `HEALTHCHECK_LINE_URL` (LINE check); Healthchecks.io ping URLs |
 | LINE | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, `LINE_TARGET_ID` (a personal chat, `U…`) |
 | Airflow | `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_VIEWER_PASSWORD` (investigator, read-only), `AIRFLOW_TRIGGER_PASSWORD` (dashboard Run pipeline account), `AIRFLOW_UID=1000`, `AIRFLOW_BIND_ADDRESS`, `AIRFLOW_PUBLIC_URL=https://airflow.praponb.com` |
