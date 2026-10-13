@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { DedupeStore } from "./dedupe.js";
 import type { Rating, Reason } from "./feedback.js";
+import type { FailureEvent } from "./types.js";
 
 /**
  * Incident + feedback log for Phase 3 (prompt tuning and triage-time metrics).
@@ -60,6 +62,16 @@ CREATE TABLE IF NOT EXISTS line_events (
   event_id    TEXT PRIMARY KEY,
   received_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS dedupe_pending (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_key     TEXT NOT NULL,
+  event       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS dedupe_pending_key ON dedupe_pending (run_key);
+CREATE TABLE IF NOT EXISTS dedupe_flushed (
+  run_key     TEXT PRIMARY KEY,
+  flushed_at  INTEGER NOT NULL
+);
 `;
 
 export type IncidentRow = {
@@ -92,7 +104,10 @@ export type IncidentRow = {
   report_pruned_at: number | null;
 };
 
-export type ModelUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; model: string | null };
+export type TokenCounts = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+/** Token totals for one incident; `byModel` splits them when a fallback model answered part of the run. */
+export type ModelUsage = TokenCounts & { calls: number; model: string | null; byModel: (TokenCounts & { model: string | null })[] };
 
 export type Resolution = "button" | "next_success";
 
@@ -110,7 +125,7 @@ export type FeedbackRow = { ref: string; voter: string; rating: Rating | null; r
 
 export type Completion = { status?: string; delivered?: boolean; replyDisposition?: string; deliveryError?: string };
 
-export class FeedbackStore {
+export class FeedbackStore implements DedupeStore {
   private readonly db: DatabaseSync;
 
   constructor(path: string) {
@@ -127,6 +142,47 @@ export class FeedbackStore {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Consistent copy of the whole database (safe while the worker writes); replaces `file` atomically. */
+  backupTo(file: string): void {
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    rmSync(tmp, { force: true });
+    this.db.prepare(`VACUUM INTO ?`).run(tmp);
+    renameSync(tmp, file);
+  }
+
+  savePendingEvent(key: string, event: FailureEvent): void {
+    this.db.prepare(`INSERT INTO dedupe_pending (run_key, event) VALUES (?, ?)`).run(key, JSON.stringify(event));
+  }
+
+  markFlushed(key: string, at: number): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM dedupe_pending WHERE run_key = ?`).run(key);
+      this.db.prepare(`INSERT INTO dedupe_flushed (run_key, flushed_at) VALUES (?, ?) ON CONFLICT(run_key) DO UPDATE SET flushed_at = excluded.flushed_at`).run(key, at);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  pruneFlushed(before: number): void {
+    this.db.prepare(`DELETE FROM dedupe_flushed WHERE flushed_at < ?`).run(before);
+  }
+
+  loadDedupeState(flushedSince: number): { pending: Map<string, FailureEvent[]>; flushed: Map<string, number> } {
+    const pending = new Map<string, FailureEvent[]>();
+    for (const r of this.db.prepare(`SELECT run_key, event FROM dedupe_pending ORDER BY seq`).all() as { run_key: string; event: string }[]) {
+      pending.set(r.run_key, [...(pending.get(r.run_key) ?? []), JSON.parse(r.event) as FailureEvent]);
+    }
+    const flushed = new Map<string, number>();
+    for (const r of this.db.prepare(`SELECT run_key, flushed_at FROM dedupe_flushed WHERE flushed_at >= ?`).all(flushedSince) as { run_key: string; flushed_at: number }[]) {
+      flushed.set(r.run_key, r.flushed_at);
+    }
+    return { pending, flushed };
   }
 
   recordDispatch(i: { ref: string; incidentKey: string; dagId: string; taskId: string; runId: string; firstSeenAt?: number; dispatchedAt: number; model?: string }): void {
@@ -179,14 +235,27 @@ export class FeedbackStore {
   usageSince(since: number): Map<string, ModelUsage> {
     const rows = this.db
       .prepare(
-        `SELECT i.ref AS ref, SUM(u.input) AS input, SUM(u.output) AS output, SUM(u.cache_read) AS cacheRead,
-                SUM(u.cache_write) AS cacheWrite, COUNT(*) AS calls, MAX(u.provider || '/' || u.model) AS model
+        `SELECT i.ref AS ref, u.provider || '/' || u.model AS pm, SUM(u.input) AS input, SUM(u.output) AS output,
+                SUM(u.cache_read) AS cacheRead, SUM(u.cache_write) AS cacheWrite, COUNT(*) AS calls
          FROM incidents i JOIN model_usage u
            ON (u.session_key IS NOT NULL AND u.session_key = i.session_key) OR u.run_id = i.agent_run_id
-         WHERE COALESCE(i.dispatched_at, i.first_seen_at) >= ? GROUP BY i.ref`,
+         WHERE COALESCE(i.dispatched_at, i.first_seen_at) >= ? GROUP BY i.ref, pm ORDER BY i.ref, pm`,
       )
-      .all(since) as (ModelUsage & { ref: string })[];
-    return new Map(rows.map(({ ref, ...u }) => [ref, { ...u, model: u.model && u.model !== "/" ? u.model : null }]));
+      .all(since) as (TokenCounts & { ref: string; pm: string | null; calls: number })[];
+    const out = new Map<string, ModelUsage>();
+    for (const { ref, calls, pm, ...part } of rows) {
+      const counts = { ...part, model: pm && pm !== "/" ? pm : null };
+      const u = out.get(ref) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, model: null, byModel: [] };
+      u.input += counts.input;
+      u.output += counts.output;
+      u.cacheRead += counts.cacheRead;
+      u.cacheWrite += counts.cacheWrite;
+      u.calls += calls;
+      u.byModel.push(counts);
+      u.model = u.byModel.map((b) => b.model).filter(Boolean).join(", ") || null;
+      out.set(ref, u);
+    }
+    return out;
   }
 
   /** First resolution wins; returns false when the incident was already resolved (or is unknown). */

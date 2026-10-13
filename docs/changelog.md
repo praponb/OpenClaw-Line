@@ -43,3 +43,10 @@ Live tests that day (all through Airflow → Databricks → investigator → LIN
 | INC-B6YRC8 | First break-it run. Its report wrongly said "code unchanged", which led to #6. |
 | INC-0CG413 | Break-it rerun; cited commit `29cb822`. |
 | INC-1WN78Q, INC-YHK57T | Cost tracking; about $0.06–0.10 per investigation. |
+
+## 2026-10-13: reliability
+
+| PR | What |
+|---|---|
+| — | Work now happens on branch `b_pbv_main` (recreated from `main`), with PRs from it to `main`. |
+| — | **Reliability**: backup model Claude Sonnet 5.5 (`model.fallbacks`, priced separately on the dashboard); Healthchecks.io heartbeat (worker or server down, gateway not ready, backup failed) and LINE-push alerts; dedupe state saved in `feedback.db`, so a restart resumes grouping and doesn't re-investigate; daily `VACUUM INTO` backups of `feedback.db` (14 kept); `/healthz` shows `investigating`. |

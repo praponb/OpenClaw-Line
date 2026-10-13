@@ -4,7 +4,11 @@ import { createWorker } from "./server.js";
 
 const cfg = loadConfig();
 const dispatcher = cfg.dryRun ? new FileDispatcher(cfg.incidentDir) : new HookDispatcher(cfg.openclaw);
-const { server, publicServer, dashboardServer, aggregator, store, resolutionWatcher } = createWorker(cfg, dispatcher);
+const { server, publicServer, dashboardServer, aggregator, store, resolutionWatcher, alerts, backup, healthProblems } = createWorker(cfg, dispatcher);
+
+// Failure windows that were open when the worker last stopped (incident log only).
+const restored = aggregator.restore();
+if (restored) console.info(`[worker] resumed ${restored} incident(s) that were still being grouped at the last shutdown`);
 
 server.listen(cfg.port, () => {
   console.info(
@@ -47,14 +51,43 @@ if (store && cfg.reportRetentionDays > 0) {
   retentionTimer.unref();
 }
 
+let backupTimer: NodeJS.Timeout | undefined;
+if (backup && cfg.feedback) {
+  // Hourly check; at most one copy per Bangkok day.
+  backup.runIfDue();
+  backupTimer = setInterval(() => backup.runIfDue(), 3600 * 1000);
+  backupTimer.unref();
+  console.info(`[worker] feedback log backups: daily into ${cfg.feedback.backup.dir}, keeping ${cfg.feedback.backup.keep}`);
+}
+
+let heartbeatTimer: NodeJS.Timeout | undefined;
+if (alerts.enabled) {
+  const beat = () => void healthProblems().then((p) => alerts.heartbeat(p));
+  // First beat after a minute: during a deploy the gateway restarts too and isn't ready yet.
+  setTimeout(beat, 60_000).unref();
+  heartbeatTimer = setInterval(beat, cfg.alerts.heartbeatSeconds * 1000);
+  heartbeatTimer.unref();
+  console.info(`[worker] alerts: heartbeat ${cfg.alerts.heartbeatUrl ? `every ${cfg.alerts.heartbeatSeconds}s` : "off"}, LINE check ${cfg.alerts.lineUrl ? "on" : "off"}`);
+} else {
+  console.info("[worker] alerts disabled (set HEALTHCHECK_URL / HEALTHCHECK_LINE_URL)");
+}
+
 const shutdown = async () => {
   clearInterval(retentionTimer);
   clearInterval(resolutionTimer);
-  console.info("[worker] shutting down; flushing pending incidents");
+  clearInterval(backupTimer);
+  clearInterval(heartbeatTimer);
   server.close();
   publicServer?.close();
   dashboardServer?.close();
-  await aggregator.flushAll();
+  if (aggregator.persistent) {
+    // Saved in the incident log; the next start resumes them.
+    console.info(`[worker] shutting down; ${aggregator.pendingCount} pending incident(s) resume on the next start`);
+    aggregator.stop();
+  } else {
+    console.info("[worker] shutting down; flushing pending incidents");
+    await aggregator.flushAll();
+  }
   store?.close();
   process.exit(0);
 };

@@ -24,7 +24,15 @@ describe("model cost", () => {
     s.recordModelUsage({ runId: "other-run", input: 99, output: 99, cacheRead: 0, cacheWrite: 0 }, 4000);
     s.setAgentRunId("INC-AAAAAA", "run-1");
     const usage = s.usageSince(0);
-    expect(usage.get("INC-AAAAAA")).toEqual({ input: 15_000, output: 3_000, cacheRead: 30_000, cacheWrite: 0, calls: 2, model: "moonshot/kimi-k3" });
+    expect(usage.get("INC-AAAAAA")).toEqual({
+      input: 15_000,
+      output: 3_000,
+      cacheRead: 30_000,
+      cacheWrite: 0,
+      calls: 2,
+      model: "moonshot/kimi-k3",
+      byModel: [{ model: "moonshot/kimi-k3", input: 15_000, output: 3_000, cacheRead: 30_000, cacheWrite: 0 }],
+    });
     const d = buildDashboardData(s.incidentsSince(0), [], { days: 30, now: 5000, usage, prices });
     expect(d.incidents[0]!.costUsd).toBeCloseTo((15_000 * 0.6 + 3_000 * 2.5 + 30_000 * 0.15) / 1e6);
     expect(d.modelCost).toMatchObject({ input: 15_000, output: 3_000, cacheRead: 30_000, calls: 2, incidents: 1, priced: true });

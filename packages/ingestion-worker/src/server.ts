@@ -6,6 +6,8 @@ import type { WorkerConfig } from "./config.js";
 import { FailureAggregator, selectRootTask } from "./dedupe.js";
 import type { DispatchResult, Dispatcher } from "./dispatcher.js";
 import { AccessVerifier, accessToken } from "./cfAccess.js";
+import { Alerts, gatewayProblem } from "./alerts.js";
+import { DailyBackup } from "./backup.js";
 import { DASHBOARD_CSP, buildDashboardData, dashboardHtml } from "./dashboard.js";
 import { PipelineStatus } from "./pipelineStatus.js";
 import { CostTracker } from "./costs.js";
@@ -39,6 +41,11 @@ export type Worker = {
   store?: FeedbackStore;
   /** MTTR auto-resolution (present when both the incident log and Airflow are configured). */
   resolutionWatcher?: ResolutionWatcher;
+  alerts: Alerts;
+  /** Daily feedback-log copies (present when the incident log is on and FEEDBACK_BACKUP_KEEP > 0). */
+  backup?: DailyBackup;
+  /** What the heartbeat reports as broken; empty when healthy. */
+  healthProblems: () => Promise<string[]>;
 };
 
 export type WorkerDeps = {
@@ -50,6 +57,8 @@ export type WorkerDeps = {
   accessVerifier?: Pick<AccessVerifier, "verify">;
   pipeline?: Pick<PipelineStatus, "get">;
   trigger?: Pick<PipelineTrigger, "trigger" | "dagId">;
+  alerts?: Alerts;
+  fetch?: typeof fetch;
 };
 
 export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: WorkerDeps = {}): Worker {
@@ -63,6 +72,20 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const costs = new CostTracker({ line, pipeline: cfg.databricks && pipeline instanceof PipelineStatus ? pipeline : undefined, now });
   const trigger = deps.trigger ?? (cfg.pipelineTrigger ? new PipelineTrigger(cfg.pipelineTrigger, { now }) : undefined);
   const testNotifier = new TestNotifier(line, cfg.openclaw.to, { now, dailyLimit: cfg.dashboardTestDailyLimit });
+  const alerts = deps.alerts ?? new Alerts(cfg.alerts, { log });
+  line?.observePushes?.((err) => void (err ? alerts.lineFailed(`LINE push failed: ${err.message}`) : alerts.lineOk("LINE push ok")));
+  const backup = store && fb && fb.backup.keep > 0 ? new DailyBackup(store, { ...fb.backup, now, log }) : undefined;
+  let investigating = 0;
+
+  async function healthProblems(): Promise<string[]> {
+    const problems: string[] = [];
+    if (!cfg.dryRun) {
+      const gw = await gatewayProblem(cfg.openclaw.gatewayUrl, { fetch: deps.fetch });
+      if (gw) problems.push(gw);
+    }
+    if (backup?.lastError) problems.push(`feedback.db backup failed: ${backup.lastError}`);
+    return problems;
+  }
 
   async function investigate(key: string, events: FailureEvent[]): Promise<void> {
     const first = events[0]!;
@@ -128,7 +151,20 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
 
     if (result.runId) store?.setAgentRunId(incident.ref, result.runId);
     if (result.completion) store?.recordCompletion(incident.ref, result.completion, now());
-    if (!cfg.dryRun) await followUp(incident, result);
+    if (!cfg.dryRun) {
+      alertOnDelivery(incident, result);
+      await followUp(incident, result);
+    }
+  }
+
+  /** The gateway delivers the report itself; tell the LINE check whether that worked. */
+  function alertOnDelivery(incident: Incident, result: DispatchResult): void {
+    const c = result.completion;
+    if (!result.ok || c?.status !== "ok") return; // the investigation failed: not a LINE problem
+    if (c.delivered === true) void alerts.lineOk(`Report ${incident.ref} delivered`);
+    else if (c.delivered === false && (!c.replyDisposition || c.replyDisposition === "visible")) {
+      void alerts.lineFailed(`Report ${incident.ref} was not delivered to LINE: ${c.deliveryError ?? "no error given"}`);
+    }
   }
 
   /** After the run settles: feedback card if the report reached LINE, otherwise a fallback notice. */
@@ -160,8 +196,17 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const aggregator = new FailureAggregator({
     windowMs: cfg.dedupeWindowMs,
     ttlMs: cfg.dedupeTtlMs,
-    onFlush: (key, events) =>
-      investigate(key, events).catch((err) => log.error(`[worker] ${key}: investigation crashed: ${sanitize(String(err))}`)),
+    store,
+    onFlush: async (key, events) => {
+      investigating++;
+      try {
+        await investigate(key, events);
+      } catch (err) {
+        log.error(`[worker] ${key}: investigation crashed: ${sanitize(String(err))}`);
+      } finally {
+        investigating--;
+      }
+    },
   });
 
   /** Dashboard page + API. Returns false when the request is not a dashboard route. */
@@ -222,7 +267,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   const server = createServer(async (req, res) => {
     const send = jsonSender(res);
     try {
-      if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, pending: aggregator.pendingCount });
+      if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, pending: aggregator.pendingCount, investigating });
       if (serveDashboard(req, res, send)) return;
       if (req.url === "/v1/openclaw/report") return await handleReport(req, send);
       if (req.url === "/v1/openclaw/usage") return await handleUsage(req, send);
@@ -256,7 +301,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
     const days = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("days") ?? 30);
     if (!Number.isInteger(days) || days < 1 || days > 3650) return send(400, { error: "days must be an integer between 1 and 3650" });
     const since = now() - days * 24 * 3600 * 1000;
-    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now(), usage: store.usageSince(since), prices: cfg.modelPrices }));
+    return send(200, buildDashboardData(store.incidentsSince(since), store.feedbackSince(since), { days, now: now(), usage: store.usageSince(since), prices: cfg.modelPrices, fallbackPrices: cfg.fallbackPrices }));
   }
 
   /** Per-call token usage from the report-capture plugin's llm_output hook (signed like Airflow callbacks). */
@@ -371,7 +416,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
 
   const resolutionWatcher = store && airflow ? new ResolutionWatcher(store, airflow, { now, log }) : undefined;
 
-  return { server, publicServer, dashboardServer, aggregator, investigate, store, resolutionWatcher };
+  return { server, publicServer, dashboardServer, aggregator, investigate, store, resolutionWatcher, alerts, backup, healthProblems };
 }
 
 function retryKey(seed: string): string {

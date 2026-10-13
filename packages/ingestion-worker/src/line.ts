@@ -27,6 +27,7 @@ export function verifyLineSignature(channelSecret: string, rawBody: Buffer, sign
 /** Minimal LINE Messaging API client: push (counts against quota) and reply (free). */
 export class LineClient {
   private readonly baseUrl: string;
+  private pushObserver: ((err?: Error) => void) | undefined;
 
   constructor(
     private readonly accessToken: string,
@@ -37,7 +38,18 @@ export class LineClient {
 
   /** Push to a user/group. The retry key makes a retried push idempotent on LINE's side. */
   async push(to: string, messages: LineMessage[], retryKey: string = randomUUID()): Promise<void> {
-    await this.post("/v2/bot/message/push", { to, messages }, { "X-Line-Retry-Key": retryKey });
+    try {
+      await this.post("/v2/bot/message/push", { to, messages }, { "X-Line-Retry-Key": retryKey });
+    } catch (err) {
+      this.pushObserver?.(err as Error);
+      throw err;
+    }
+    this.pushObserver?.();
+  }
+
+  /** Called after every push (with the error when it failed); used for alerting. Replies are not observed. */
+  observePushes(fn: (err?: Error) => void): void {
+    this.pushObserver = fn;
   }
 
   /** This month's message quota and usage, as LINE counts them (read-only). */
