@@ -23,9 +23,11 @@ ssh prapon@192.168.1.49 'cd OpenClaw-Line && make demo-prepare-docker && \
 make lakehouse-deploy   # Databricks job, from the Mac
 ```
 
-- **Never overwrite the server's `demo/.env`**, and check that no investigation is running first: `GET http://localhost:8080/healthz` in the worker should show `"investigating": 0`. Incidents still being grouped (`pending`) are saved and resume after the restart; an investigation in progress is not (its report reaches LINE, but the feedback card is lost).
+- **Never overwrite the server's `demo/.env`**, and check that no investigation is running first: `curl localhost:8093/healthz` on the server (the worker's port 8080) should show `"investigating": 0`. Incidents still being grouped (`pending`) are saved and resume after the restart; an investigation in progress is not (its report reaches LINE, but the feedback card is lost).
 - **The worker image copies a pre-built `dist/`,** so the server must run `make demo-prepare-docker` (Node runs in a container) before `--build`.
-- **Before a change to the incident log schema,** make a fresh copy even though daily backups exist: `docker compose --env-file demo/.env -f demo/docker-compose.yml exec ingestion-worker node -e 'new (require("node:sqlite").DatabaseSync)("/data/feedback.db").exec("VACUUM INTO \x27/data/backups/pre-change.db\x27")'`.
+- **Before a change to the incident log schema,** make a fresh copy even though daily backups exist: `docker compose --env-file demo/.env -f demo/docker-compose.yml exec ingestion-worker node -e 'new (require("node:sqlite").DatabaseSync)("/data/feedback.db").exec("VACUUM INTO \x27/data/backups/pre-change.db\x27")'`. Delete `pre-change.db` once the deploy works: the daily cleanup only removes `feedback-YYYY-MM-DD.db` files.
+- **New secrets go into the server's `demo/.env`.** The Mac's copy is never synced (rsync excludes it).
+- **After a gateway restart,** Docker shows "health: starting" for about 3 minutes (see Pitfalls). Check readiness directly: `docker compose … exec openclaw-gateway curl -s localhost:18789/readyz`.
 - **Airflow DAGs and plugins are bind-mounted;** rsync is enough for them. Restart Airflow only when its environment changes.
 
 ## Settings in the server's `demo/.env` (names only)
@@ -95,10 +97,22 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Traceback "line 33" didn't match the file | Notebook frames count from the top of the cell. | The tool maps them to file lines ("file line: … line 47"). |
 | OpenClaw agent saw no tools | `tools.profile` filters before `allow`; plugins loaded via `load.paths` lack an install record. | No profile; install plugins in the image. Keep Code Mode and Tool Search off. |
 | Bundled plugin broke `node:sqlite` | tsup strips `node:` prefixes. | Bundle smoke test or live run. |
+| Gateway "health: starting" for ~3 min after a restart | The image's healthcheck runs every 180 s; its first runs hit OpenClaw's startup doctor ("state … undergoing offline maintenance"). | Wait for the next run, or check `/readyz` inside the container. |
+| New keys had no effect on the server | They were added to the Mac's `demo/.env`, which deploys never copy. | Add secrets to the server's `demo/.env`. |
+| Grounding check flagged `subprocess.run` as a table | Every dotted name counted as a table, including code names from tracebacks. | Table names are read from the Blast Radius section only. |
+| Investigator said a test DAG "not found in the repository" | The git tool reads `GIT_REF=main`; the DAG was only on an unmerged branch. | Expected until the branch is merged. |
+
+## Dates to remember
+
+| Date | What |
+|---|---|
+| 2027-01-01 | Gemini 3.6 Flash prices double. Set `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=1.50`, `…_OUTPUT_PER_MTOK=7.50`, `…_CACHE_READ_PER_MTOK=0.15` in the server's `demo/.env` and restart the worker. |
+| 2027-10-11 | Databricks service principal OAuth secrets expire. |
 
 ## Before connecting real production data
 
 See [data-residency.md](data-residency.md):
+- Check the Google Gemini API (backup model) and Healthchecks.io terms: data location and retention are not checked yet. The Gemini key's project must keep billing on.
 - A written no-training agreement from Moonshot, or switch the model provider.
 - Record or move the Databricks region (Mumbai, or recreate in Singapore).
 - Send reports to a LINE group and add teammates to Access when others join.
