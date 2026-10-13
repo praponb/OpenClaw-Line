@@ -20,6 +20,7 @@ export function renderFeedbackReport(incidents: IncidentRow[], feedback: Feedbac
     `Triage time, failure -> report (median / p90): ${fmtDuration(quantile(triage, 0.5))} / ${fmtDuration(quantile(triage, 0.9))}`,
     mttrLine(incidents),
     `Incidents with feedback: ${new Set(feedback.map((f) => f.ref)).size}`,
+    groundingLine(incidents),
     "",
     "By prompt version:",
   );
@@ -83,6 +84,14 @@ function indent(s: string): string {
     .split("\n")
     .map((l) => `    ${l}`)
     .join("\n");
+}
+
+/** Grounding check: reports whose SHAs, paths or table names were all found in the evidence. */
+function groundingLine(incidents: IncidentRow[]): string {
+  const checked = incidents.filter((i) => i.ungrounded !== null);
+  const flagged = checked.filter((i) => i.ungrounded !== "[]");
+  const list = flagged.map((i) => `${i.ref}: ${(JSON.parse(i.ungrounded!) as string[]).join("; ")}`);
+  return `Grounding check: ${checked.length} report(s) checked, ${flagged.length} with claims not found in the evidence${list.length ? `\n  ${list.join("\n  ")}` : ""}`;
 }
 
 /** MTTR: first failure -> resolved (✅ in LINE or the DAG's next successful run). */

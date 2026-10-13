@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
 import type { Dispatcher, DispatchResult } from "../src/dispatcher.js";
 import { decodePostback, encodePostback } from "../src/feedback.js";
+import { renderFeedbackReport } from "../src/feedbackReport.js";
 import { FeedbackStore } from "../src/feedbackStore.js";
 import { LineClient } from "../src/line.js";
 import { createWorker } from "../src/server.js";
@@ -118,6 +119,27 @@ describe("report capture endpoint", () => {
     expect(store.getIncident(ref)).toMatchObject({ report_text: `🚨 Incident Summary\nRef: ${ref}`, prompt_version: "p1" });
     const bad = await fetch(url, { method: "POST", headers: { "x-openclaw-timestamp": ts, "x-openclaw-signature": "sha256=00" }, body });
     expect(bad.status).toBe(401);
+    expect(store.getIncident(ref)!.ungrounded).toBeNull(); // grounding not checked
+  });
+
+  it("stores the grounding result and shows it on the dashboard and in the feedback report", async () => {
+    const { worker, store, sent } = setup({ ok: true, detail: "", completion: { status: "ok", delivered: true } });
+    await worker.investigate("daily_revenue_pipeline:manual__1", EVENTS);
+    const ref = sent[0]!.body.messages[0].altText.match(/INC-\w{6}/)[0];
+    const port = await listen(worker.server);
+    const post = (extra: Record<string, unknown>) => {
+      const body = JSON.stringify({ ref, content: `report\nRef: ${ref}`, success: true, ...extra });
+      const ts = String(Math.floor(Date.now() / 1000));
+      return fetch(`http://127.0.0.1:${port}/v1/openclaw/report`, { method: "POST", headers: { "x-openclaw-timestamp": ts, "x-openclaw-signature": sign("whsec_test", ts, body) }, body });
+    };
+    expect((await post({ ungrounded: ["a1b2c3d", 42, "analytics.finance_kpis"] })).status).toBe(200);
+    expect(store.getIncident(ref)!.ungrounded).toBe('["a1b2c3d","analytics.finance_kpis"]');
+    const dash = await (await fetch(`http://127.0.0.1:${port}/api/dashboard`)).json();
+    expect(dash.incidents[0].ungrounded).toEqual(["a1b2c3d", "analytics.finance_kpis"]);
+    expect(renderFeedbackReport(store.incidentsSince(0), [], { days: 30 })).toContain(`Grounding check: 1 report(s) checked, 1 with claims not found in the evidence\n  ${ref}: a1b2c3d; analytics.finance_kpis`);
+
+    expect((await post({ ungrounded: [] })).status).toBe(200);
+    expect(renderFeedbackReport(store.incidentsSince(0), [], { days: 30 })).toContain("Grounding check: 1 report(s) checked, 0 with claims not found in the evidence");
   });
 });
 

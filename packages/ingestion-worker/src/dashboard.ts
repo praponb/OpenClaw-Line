@@ -23,6 +23,16 @@ export function incidentCostUsd(u: ModelUsage, prices: ModelPrices | null, fallb
   return u.byModel.reduce((usd, part) => usd + usageCostUsd(part, fallback && isModel(part.model, fallback.model) ? fallback.prices : prices), 0);
 }
 
+function parseList(json: string | null): string[] | null {
+  if (json === null) return null;
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Usage rows say "provider/model"; config may name the model with or without the provider. */
 function isModel(used: string | null, configured: string | undefined): boolean {
   if (!used || !configured) return false;
@@ -60,6 +70,8 @@ export type DashboardIncident = {
   /** Investigator model usage for this incident (null until token usage arrives) and its USD estimate (null without prices). */
   usage: ModelUsage | null;
   costUsd: number | null;
+  /** Grounding check: claims not found in the evidence ([] = all found, null = not checked). */
+  ungrounded: string[] | null;
   votes: Record<Rating, number>;
   reasons: { reason: Reason; label: string; count: number }[];
   reportText: string | null;
@@ -126,6 +138,7 @@ export function buildDashboardData(
       triageSeconds: state === "delivered" && i.first_seen_at && reportAt ? Math.round((reportAt - i.first_seen_at) / 100) / 10 : null,
       usage,
       costUsd: usage ? incidentCostUsd(usage, prices, opts.fallbackPrices ?? null) : null,
+      ungrounded: parseList(i.ungrounded),
       resolvedAt: i.resolved_at,
       resolution: i.resolution,
       resolveSeconds: i.resolved_at && (i.first_seen_at ?? i.dispatched_at) ? Math.max(0, Math.round((i.resolved_at - (i.first_seen_at ?? i.dispatched_at)!) / 1000)) : null,
