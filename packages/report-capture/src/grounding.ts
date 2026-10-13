@@ -15,15 +15,28 @@ const MAX_ITEMS = 8;
 
 export type Claims = { shas: string[]; paths: string[]; tables: string[] };
 
-/** SHAs, file paths and dotted table names mentioned in a report (URLs are ignored). */
+/**
+ * SHAs, file paths and dotted table names mentioned in a report (URLs are ignored).
+ * Table names are read from the Blast Radius section only: elsewhere dotted names are
+ * mostly code (`subprocess.run`, `payload.get`) taken from tracebacks.
+ */
 export function extractClaims(report: string): Claims {
+  const strip = (s: string) => s.replace(URL_RE, " ").replace(PATH_RE, " ");
   const text = report.replace(URL_RE, " ");
   const paths = unique(text.match(PATH_RE) ?? []);
-  const rest = text.replace(PATH_RE, " ");
   // A SHA needs a digit and a letter, so plain numbers (run ids) and words (e.g. "facade") don't count.
-  const shas = unique((rest.match(SHA_RE) ?? []).filter((s) => /\d/.test(s) && /[a-f]/.test(s)));
-  const tables = unique((rest.match(TABLE_RE) ?? []).filter((t) => !NOT_TABLE_SUFFIX.test(t) && !/^(?:e\.g|i\.e)$/i.test(t)));
+  const shas = unique((strip(report).match(SHA_RE) ?? []).filter((s) => /\d/.test(s) && /[a-f]/.test(s)));
+  const blast = strip(blastRadius(report));
+  const tables = unique((blast.match(TABLE_RE) ?? []).filter((t) => !NOT_TABLE_SUFFIX.test(t) && !/^(?:e\.g|i\.e)$/i.test(t)));
   return { shas, paths, tables };
+}
+
+/** The "⚠️ Blast Radius" section, up to the next emoji header (whole report if there is none). */
+function blastRadius(report: string): string {
+  const start = report.indexOf("⚠️ Blast Radius");
+  if (start < 0) return report;
+  const end = report.indexOf("🛠️", start);
+  return report.slice(start, end < 0 ? undefined : end);
 }
 
 /** Claims that appear nowhere in the evidence (case-insensitive), at most 8. */

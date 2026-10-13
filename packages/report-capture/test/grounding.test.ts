@@ -50,6 +50,20 @@ describe("grounding check", () => {
     ]);
   });
 
+  it("reads table names from the Blast Radius section only (dotted code names elsewhere are not tables)", () => {
+    const report = [
+      "📌 Root Cause (Facts):",
+      "- CalledProcessError via subprocess.run (subprocess.py line 577); payload.get returned None",
+      "⚠️ Blast Radius:",
+      "- Impacted Downstream Tables/Models: analytics.fct_daily_revenue; analytics.finance_kpis",
+      "🛠️ Recommended Next Steps (Human-in-the-Loop):",
+      "- Check subprocess.check_output usage",
+      "Ref: INC-7F3A2K",
+    ].join("\n");
+    expect(extractClaims(report).tables).toEqual(["analytics.fct_daily_revenue", "analytics.finance_kpis"]);
+    expect(ungroundedClaims(report, `${INCIDENT}\n${TOOLS}`)).toEqual(["analytics.finance_kpis"]);
+  });
+
   it("puts the warning just above the Ref line", () => {
     const out = withGroundingWarning(REPORT(""), ["a1b2c3d", "analytics.finance_kpis"]);
     const lines = out.split("\n");
