@@ -5,3 +5,8 @@ resources:
       schema_name: bronze
       name: checkpoints
       comment: Auto Loader checkpoints for bronze ingestion (managed by the bundle).
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: bronze
+      name: landing
+      comment: Raw Stripe-style event files landed by the job (managed by the bundle; housekeeping deletes date folders after landing_retention_days).

@@ -7,8 +7,8 @@ How the deployed system runs, where things live, and the problems already hit an
 | Piece | Where |
 |---|---|
 | Docker Compose stack (`airflow`, `ingestion-worker`, `openclaw-gateway`, `tunnel`) | Ubuntu server `192.168.1.49`, user `prapon`, `~/OpenClaw-Line`. That directory is an **rsync copy** of the repo, not a git checkout. Server time zone is Asia/Bangkok. |
-| Databricks workspace | `https://8259562386951628.8.gcp.databricks.com` (GCP, Unity Catalog metastore `asia-south1`, Mumbai). CLI profile on the Mac: `openclaw`. |
-| Data | GCS bucket `praponb-lakehouse-raw` (`asia-southeast3`, Bangkok): `landing/` raw files, `_managed/` Delta tables. Catalog `lakehouse` with schemas `bronze`, `silver`, `gold`; volumes `lakehouse.bronze.landing` and `lakehouse.bronze.checkpoints`. |
+| Databricks workspace | `https://8259554454724321.1.gcp.databricks.com` (GCP, Unity Catalog metastore `asia-south1`, Mumbai), since 2026-10-17. The first workspace (`8259562386951628.8`) was deleted. CLI profile on the Mac: `openclaw` (`make lakehouse-deploy LAKEHOUSE_PROFILE=<profile>` for another). |
+| Data | Catalog `lakehouse` on the workspace's Default Storage (Databricks-managed, same region as the workspace), schemas `bronze`, `silver`, `gold`; managed volumes `lakehouse.bronze.landing` (raw files) and `lakehouse.bronze.checkpoints`, both from the bundle. |
 | Public hostnames (Cloudflare tunnel `582a2422-5a02-49de-94b4-a4fe7025c5be`, named "dashboard" in Cloudflare, Free plan) | `openclaw-feedback.praponb.com` → worker `:8091` (LINE webhook only); `dashboard.praponb.com` → worker `:8092` (Access app and worker JWT check); `airflow.praponb.com` → `airflow:8080` (Access app with Protect with Access). Routes live under **Zero Trust → Networks → Tunnels & Mesh → dashboard → Published application routes**, not "Hostname routes". |
 | Mac | Development only. Its Compose stack is stopped. **Never start the Mac's tunnel while the server's runs**: Cloudflare would split webhook and dashboard traffic. The Mac's own `cloudflared` runs `batch2stream`, a different project. |
 
@@ -39,7 +39,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Alerts | `HEALTHCHECK_URL` (heartbeat check), `HEALTHCHECK_LINE_URL` (LINE check); Healthchecks.io ping URLs |
 | LINE | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, `LINE_TARGET_ID` (a personal chat, `U…`) |
 | Airflow | `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_VIEWER_PASSWORD` (investigator, read-only), `AIRFLOW_TRIGGER_PASSWORD` (dashboard Run pipeline account), `AIRFLOW_UID=1000`, `AIRFLOW_BIND_ADDRESS`, `AIRFLOW_PUBLIC_URL=https://airflow.praponb.com` |
-| Databricks | `DATABRICKS_HOST`, `DATABRICKS_JOB_ID=954973835355130`, `DATABRICKS_RUNNER_CLIENT_ID/SECRET` (Airflow only), `DATABRICKS_READER_CLIENT_ID/SECRET` (gateway and worker). OAuth secrets expire **2027-10-11**. |
+| Databricks | `DATABRICKS_HOST`, `DATABRICKS_JOB_ID=74688628083610`, `DATABRICKS_RUNNER_CLIENT_ID/SECRET` (Airflow only), `DATABRICKS_READER_CLIENT_ID/SECRET` (gateway and worker). OAuth secrets expire **2028-10-16**. |
 | Git evidence | `GIT_PROVIDER=github`, `GITHUB_REPO=praponb/OpenClaw-Line`, `GIT_REF=main`, `GIT_PATH_PREFIXES=airflow/`, `GITHUB_TOKEN` (fine-grained, this repo only, Contents read-only) |
 | Cloudflare / dashboard | `CLOUDFLARE_TUNNEL_TOKEN`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `DASHBOARD_ALLOWED_EMAILS` |
 | Other | `WEBHOOK_SECRET`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_HOOK_TOKEN`, `WORKER_HOST_PORT=8093` (8090 is taken by another app) |
@@ -48,8 +48,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 
 | Identity | Can do |
 |---|---|
-| Databricks `sp-airflow-runner` (`31404119…`) | `CAN_MANAGE_RUN` on the job. Granted in the bundle, not the UI. |
-| Databricks `sp-openclaw-reader` (`2191f7df…`) | `CAN_VIEW` on the job plus `CAN_READ` on the bundle files (top-level bundle `permissions`), and `BROWSE` on catalog `lakehouse` (granted by CLI). Data and volume reads return 403. The workspace is identity-federated, so SP names change only in the account console. |
+| Databricks `sp-airflow-runner` (`5373a47d…`) | `CAN_MANAGE_RUN` on the job. Granted in the bundle, not the UI. |
+| Databricks `sp-openclaw-reader` (`d70ea6d2…`) | `CAN_VIEW` on the job plus `CAN_READ` on the bundle files (top-level bundle `permissions`), and `BROWSE` on catalog `lakehouse` (granted by CLI). Data and volume reads return 403. Both SPs have only the `workspace-consume` entitlement: without one, every API call returns 403 ("This API is disabled for users without …"). |
 | Airflow `investigator` (viewer) | Reads logs and runs; a run-create attempt returns 403. |
 | Airflow `dashboard` (user) | Starts DAG runs; held by the worker only. |
 | GitHub token | Read-only on this repo; write probes return 403. |
@@ -107,7 +107,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Date | What |
 |---|---|
 | 2027-01-01 | Gemini 3.6 Flash prices double. Set `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=1.50`, `…_OUTPUT_PER_MTOK=7.50`, `…_CACHE_READ_PER_MTOK=0.15` in the server's `demo/.env` and restart the worker. |
-| 2027-10-11 | Databricks service principal OAuth secrets expire. |
+| 2028-10-16 | Databricks service principal OAuth secrets expire (created 2026-10-17 for workspace `8259554454724321.1`). |
 
 ## Before connecting real production data
 

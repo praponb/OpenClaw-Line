@@ -10,7 +10,7 @@ This is an engineering review, not legal advice. Use it as input for a Thai PDPA
 
 | # | Finding | Severity |
 |---|---|---|
-| 1 | **Databricks processes the pipeline in India.** The workspace's Unity Catalog metastore is `asia-south1` (Mumbai). Raw files and managed tables are stored in Bangkok (`asia-southeast3`), but every read and write happens on compute in Mumbai. **Decision (2026-10-11): stay in Mumbai while the data is synthetic; revisit before real data** (see recommendation 1). | High for real data |
+| 1 | **Databricks processes the pipeline in India.** The workspace's Unity Catalog metastore is `asia-south1` (Mumbai). Since 2026-10-17 (new workspace `8259554454724321.1`), raw files and managed tables are on the workspace's Default Storage, a Databricks-managed bucket in the workspace region, so data at rest is in Mumbai too; before that they were in a Bangkok bucket (`asia-southeast3`). **Decision (2026-10-11): stay in Mumbai while the data is synthetic; revisit before real data** (see recommendation 1). | High for real data |
 | 2 | ~~**Pipeline error messages carry data values.**~~ ✅ Fixed 2026-10-11: silver now reports field names and counts only. Previously: Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
 | 3 | **Evidence sent to the model provider leaves Thailand and may be used for training.** Sanitized logs, errors, diffs and table names go to Moonshot's international API (`api.moonshot.ai`), operated by Moonshot AI Pte. Ltd. with servers in **Singapore**. Its terms allow using customer content to improve the service, including training, unless agreed otherwise in writing (enterprise arrangement). Data is kept while the account is active. | **High for real data** |
 | 4 | **The sanitizer misses some Thai personal data.** Thai national IDs and phone numbers are masked since 2026-10-11; names, addresses and bank account numbers still aren't. | Medium (was: no Thai identifiers at all) |
@@ -29,7 +29,7 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
  │   │                            │  (SQLite)            │── report + card ────▶ LINE (personal chat)  ❓ region
  │   │                            │                      │◀─ feedback taps ─────
  │   └── starts job ──────────────┼──────────────────────│── run / read ───────▶ Databricks, asia-south1 (Mumbai) ✅
- │                                │                      │       └─ reads/writes ▶ GCS bucket, asia-southeast3 (Bangkok) ✅
+ │                                │                      │       └─ reads/writes ▶ Default Storage, workspace region (Mumbai)
  │ investigator tools ────────────┼──────────────────────│── read code ────────▶ GitHub (private repo)
  └────────────────────────────────┼──────────────────────┘
                                   └── dashboard, LINE webhook, Airflow UI ─▶ Cloudflare tunnel (edges BKK/SIN) ✅
@@ -44,7 +44,7 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 | **Healthchecks.io** | Heartbeat pings every 5 min; ping bodies: incident refs (`INC-…`), sanitized error text (gateway, backup or LINE errors). No report text, DAG names or LINE user ids. | ❓ Not checked yet | ❓ Ping log of the check | Bodies sanitized and capped at 2,000 characters. |
 | **LINE** | Model-written report (error text, file paths, commit SHA and GitHub login, table names); feedback card; fallback notices; dashboard test messages. Inbound: feedback taps with the LINE user id. | LY Corporation (Japan). Its policy names data centers in Japan and the US for Japanese users and lists Thailand among group transfer destinations; the storage location for Thai users is not stated ❓ | Message content kept "for a minimum period", then automatically deleted from LINE's servers, and not used beyond delivery without extra consent ✅; copies stay on users' devices | Target is a **personal chat** (`U…` id) ✅, not a group. Voter ids stored only as a salted hash (`u:` + 16 hex chars) ✅. Webhook signature verified. Signed postbacks. |
 | **Databricks (GCP)** | Pipeline data (landing files, bronze/silver/gold tables); run metadata and logs; notebook source (from the bundle). | Workspace/metastore `asia-south1`, Mumbai ✅ | Run history up to 60 days (Databricks docs) ✅; landing files 90 days and `VACUUM` 7 days via the job's housekeeping task ✅ | Service principals: runner `CAN_MANAGE_RUN`, reader `CAN_VIEW` + `BROWSE` (metadata only; data and volume reads return 403) ✅. Serverless compute. |
-| **Google Cloud Storage** | Raw landing files (`landing/`), managed Delta tables (`_managed/`). | `asia-southeast3`, Bangkok ✅ | `landing/` date folders deleted after 90 days by the housekeeping task; `_managed/` follows `VACUUM` ✅ | Public access prevention on; access only through the Unity Catalog storage credential. |
+| **Databricks Default Storage** (since 2026-10-17) | Raw landing files (volume `lakehouse.bronze.landing`), managed Delta tables. The earlier GCS bucket `praponb-lakehouse-raw` (Bangkok) is no longer used. | Databricks-managed bucket in the workspace region (`asia-south1`, Mumbai) | Landing date folders deleted after 90 days by the housekeeping task; tables follow `VACUUM` ✅ | Reachable only through Unity Catalog; the reader gets 403 on volumes ✅. |
 | **GitHub** | Read by the investigator: commit metadata and diffs of `praponb/OpenClaw-Line`. No pipeline data is sent to GitHub. | US (GitHub) | Repository history | Fine-grained token limited to this one repo with Contents read-only; write probes return 403 ✅. |
 | **Cloudflare** | Dashboard pages (incident reports, run status), Airflow UI, LINE webhook traffic; Access login email. TLS terminates at Cloudflare's edge, so Cloudflare can see this traffic in clear text. | Edges `bkk08`, `sin12`, `sin15` ✅ | **Free plan** (confirmed by the owner, 2026-10-11): Zero Trust Access logs kept 24 hours; admin audit logs 18 months; authentication logs 6 months ✅. | Access (one-time PIN, one allowed email) plus worker-side JWT check; Protect-with-Access on the Airflow route ✅. |
 
@@ -75,7 +75,7 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 | Cloudflare tunnel token | Tunnel container | Run the connector for the named tunnel. |
 | Webhook and feedback signing secrets | Worker, gateway, Airflow | Sign callbacks, reports, usage, postbacks. |
 
-OAuth secrets for the Databricks service principals expire on 2027-10-11.
+OAuth secrets for the Databricks service principals expire on 2028-10-16.
 
 ## Sanitizer coverage
 
@@ -92,7 +92,7 @@ In order. Items 1–4 should happen before real production data is connected.
 1. **Where Databricks processes data.** Databricks doesn't offer a Bangkok workspace region.
    - **Decision 2026-10-11: keep Mumbai while the data is synthetic.** Migrating means a new workspace, catalog, credentials, service principals and secrets, which isn't worth it yet.
    - **Before real data:** either record Mumbai as a cross-border transfer in the PDPA assessment, or recreate the workspace in `asia-southeast1` (Singapore). Singapore is closer to Bangkok, to the Cloudflare edges and to Moonshot's servers, with less cross-region traffic; the bundle redeploys with a new host.
-   - Either way, keep the GCS bucket in Bangkok for data at rest.
+   - The new workspace (2026-10-17) keeps data at rest on Default Storage in Mumbai. To keep it in Bangkok, give catalog `lakehouse` a managed location on a Bangkok bucket instead.
 2. ✅ **Keep data values out of pipeline errors.** Done for the lakehouse job (`databricks/src/quality.py`: "Unexpected fields: amount_cents", counts only). Apply the same rule to any production task code: exceptions travel to the model, LINE and the dashboard.
 3. ✅ **Extend the sanitizer for Thai personal data:** national ID and phone numbers are done. Add bank account formats you use when real data arrives.
 4. **Before real data, get a written no-training agreement from Moonshot, or switch provider.** Checked 2026-10-11:
