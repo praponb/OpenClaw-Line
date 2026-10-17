@@ -86,7 +86,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 |---|---|---|
 | Error 1033 after the Access login | The hostname's route was on a tunnel with no running connector. | Put the route on tunnel `582a2422…`. |
 | Airflow tasks hang in "Pre Execute" | Tasks call the Execution API at `AIRFLOW__API__BASE_URL`; behind Cloudflare Access that returns a login redirect. | `AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://localhost:8080/execution/`. |
-| Gateway image build fails on plugin install | Unpinned `@openclaw/moonshot-provider` pulled a release needing a newer plugin API. | Pin official plugins to the gateway version (`OPENCLAW_PLUGIN_VERSION=2026.9.9`). |
+| Gateway image build fails on plugin install | Unpinned `@openclaw/moonshot-provider` pulled a release needing a newer plugin API. | Pin official plugins to the gateway version (`OPENCLAW_PLUGIN_VERSION`, now 2026.10.2). |
 | `run_after` has no `in_timezone` | Manual runs in Airflow 3 may have no logical date, and `run_after` is a plain datetime. | `+ macros.timedelta(hours=7)`. |
 | `airflow db clean` fails inside a DAG | Airflow 3 tasks can't reach the metadata DB. | `make airflow-db-clean` from cron. |
 | `llm_output` hook blocked | OpenClaw guards it for non-bundled plugins. | `plugins.entries.report-capture.hooks.allowConversationAccess: true`. |
@@ -107,6 +107,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Creating catalog `lakehouse` failed: "Metastore storage root URL does not exist" | The account uses Default Storage; the API and CLI can't create a catalog on it. | Create the catalog in the UI (Use default storage), then remove the `BROWSE` it grants to `account users`. |
 | Every service principal API call returned 403 "This API is disabled for users without …" | The new workspace's `users` group grants no entitlements. | Give the SP an entitlement. |
 | Investigator got 403 "does not have access to Databricks Workspace" for a failed run | `workspace-consume` covers job and run reads but not `jobs/runs/get-output` or the workspace API. | Reader gets `workspace-access`. Test SPs with the exact calls the tools make. |
+| Doctor at gateway start: "Unknown model: moonshot/kimi-k3" (2026.10.2) | Doctor's tool-schema check runs before the Moonshot catalog has loaded. | Harmless: `openclaw models list --provider moonshot` lists `kimi-k3` once started, and runs use it. |
+| Doctor at gateway start: "Remember across conversations is effectively enabled" (2026.10.2) | Unset `memory.search.rememberAcrossConversations` counts as on. | Set to `false` in `openclaw.json5`: each incident stands on its own evidence. |
 | `insufficient_evidence` live test "failed" although the report was right | The test DAG's diff (docstring, `kill -9 $$`) and the `eval__…` run id told the investigator the failure was intentional. | Neutral test DAG `finance_nightly_jobs`, the failing client installed outside the repository, `manual__` run ids; add and delete files in separate commits (a rename's patch shows the old code). |
 | Report wrote "insufficient evidence" under Hypothesis | The prompt didn't say that "what failed but not why" counts as undetermined. | `AGENTS.md` rule (prompt version `1f58cc72c93c`). |
 
@@ -127,5 +129,5 @@ See [data-residency.md](data-residency.md):
 
 ## Open items
 
-- OpenClaw v2026.10.2 is available (pinned 2026.9.9); after an upgrade re-check Code Mode, Tool Search and tool visibility.
+- OpenClaw 2026.10.3 and 2026.10.4 are available (pinned 2026.10.2). Upgrade: bump `OPENCLAW_IMAGE` / `OPENCLAW_PLUGIN_VERSION` in `demo/openclaw.Dockerfile` and the `openclaw` devDependency, tag the running image for rollback, then check Doctor's output, Code Mode, Tool Search, tool visibility and `make eval-live`.
 - A Kimi → Gemini fallback run has never happened live.

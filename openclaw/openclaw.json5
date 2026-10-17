@@ -101,7 +101,9 @@
   //   which costs extra calls and wrong-argument retries for 4 tools.
   tools: { codeMode: false, toolSearch: false },
   skills: { workshop: { autonomous: { mode: "off" } } },
-  memory: { search: { enabled: false } },
+  // Each incident is investigated on its own evidence. Left unset,
+  // rememberAcrossConversations counts as on (2026.10.2 doctor warns).
+  memory: { search: { enabled: false, rememberAcrossConversations: false } },
 
   agents: {
     // Explicit ownership: no default agent, so inbound chat never reaches the investigator.

@@ -95,3 +95,10 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - Test DAG `investigator_scenarios`: Airflow marked it stale after the file was removed (last parsed 2026-10-17 17:31). 06:04: removed with `airflow db clean --dag-ids investigator_scenarios` (6 runs, 21 log rows and the DAG entry; other DAGs untouched).
 - `make eval-live` warns about `Fact:` lines that read like a deduction or general knowledge (INC-T4B79W: "a missing file would raise FileNotFoundError"). A warning, not a failure: on the 24 stored reports it flags 3 lines, 2 mislabeled and 1 quoting a DAG comment. No prompt change.
 - 06:05–06:09: live test `insufficient_evidence` with the new warning (INC-5RZEP9, prompt `1f58cc72c93c`): 6/6 passed, no WARN. Both `Fact:` lines come from the log and the DAG; the OOM killer and watchdog ideas are under `Hypothesis:`.
+
+## 2026-10-18: OpenClaw 2026.10.2
+
+- Gateway image, official `@openclaw/line` and `@openclaw/moonshot-provider` plugins, and the plugin SDK devDependency moved from 2026.9.9 to 2026.10.2 (release notes 2026.10.1–2026.10.2 checked: our plugins use the focused SDK subpaths, no config keys removed). Old image kept on the server as `openclaw-line/gateway:rollback-2026.9.9`.
+- Doctor at the first start: added `meta`/`wizard` records and enabled the bundled `google` plugin (the Gemini fallback's provider); warned "Unknown model: moonshot/kimi-k3" before the catalog loaded (harmless, see Pitfalls) and that cross-conversation memory was effectively on → `memory.search.rememberAcrossConversations: false`.
+- 06:23 deployed, 06:28 redeployed with the memory setting. Checks: Code Mode, Tool Search and cron off; fallback chain `moonshot/kimi-k3` → `google/gemini-3.5-flash`; the 4 investigator tools installed; transcripts show direct tool calls only (no `exec`, no `tool_search`).
+- 06:29–06:38: `make eval-live` **30/30 passed**, all on Kimi K3 (INC-J75ARX, INC-G9N095, INC-BJ4GXB, INC-JYTKKT); triage 79–125 s. One WARN (INC-BJ4GXB): "Fact: … which also would not equal 12,450" is a deduction labeled as fact.
