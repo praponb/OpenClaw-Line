@@ -162,12 +162,12 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 | Phase 3 (feedback buttons, feedback log, prompt-version tracking) | Done; triage time and resolution time (MTTR) are measured |
 | Dashboard | Live view with Cloudflare Access for public hostnames |
 | Deployment | Linux server with Docker; named Cloudflare tunnel for the LINE webhook, dashboard and Airflow UI |
-| Reliability | Backup model, Healthchecks.io alerts, dedupe state that survives restarts, daily feedback-log backups |
+| Reliability | Backup model, Healthchecks.io alerts (live since 2026-10-17), dedupe state that survives restarts, daily feedback-log backups |
 | Quality | Grounding check on every report; live tests for insufficient evidence, prompt injection, huge logs and a big cascade (`make eval-live`) |
 
 Open items:
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
-- Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Before connecting real data: get a written no-training agreement from Moonshot (or switch model provider), and record or move the Databricks region (now Mumbai).
+- Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Gemini API and Healthchecks.io terms were checked on 2026-10-17. Before connecting real data: get a written no-training agreement from Moonshot (or switch model provider), and record the Databricks region as a cross-border transfer (compute and, since 2026-10-17, storage are in Mumbai) or move it.
 - Retention: `REPORT_RETENTION_DAYS` (default 180) for incident report text; Airflow DAG `housekeeping` (daily 03:00 Bangkok) deletes task logs after `AIRFLOW_LOG_RETENTION_DAYS` (30); the Databricks job's `housekeeping` task deletes landing folders after `landing_retention_days` (90) and runs `VACUUM` (7 days). Airflow metadata older than `AIRFLOW_METADATA_RETENTION_DAYS` (90) is removed with `make airflow-db-clean`, run daily at 03:15 by the server's crontab (see the Makefile for the line). Airflow 3 tasks can't reach the metadata DB, so it isn't part of the DAG.
 
 ## Production notes
