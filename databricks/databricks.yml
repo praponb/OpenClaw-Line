@@ -27,8 +27,8 @@ targets:
   prod:
     default: true
     variables:
-      airflow_runner_sp: 31404119-fc09-43f6-b82d-4854f2488755
-      investigator_reader_sp: 2191f7df-57bf-4962-ab1a-9e17b4e961eb
+      airflow_runner_sp: 5373a47d-a478-4279-b92b-e3ccfa13d2c3
+      investigator_reader_sp: d70ea6d2-64fc-4a74-af75-39192a33d4de
     workspace:
-      host: https://8259562386951628.8.gcp.databricks.com
+      host: https://8259554454724321.1.gcp.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
