@@ -49,7 +49,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Identity | Can do |
 |---|---|
 | Databricks `sp-airflow-runner` (`5373a47d…`) | `CAN_MANAGE_RUN` on the job. Granted in the bundle, not the UI. |
-| Databricks `sp-openclaw-reader` (`d70ea6d2…`) | `CAN_VIEW` on the job plus `CAN_READ` on the bundle files (top-level bundle `permissions`), and `BROWSE` on catalog `lakehouse` (granted by CLI). Data and volume reads return 403. Both SPs have only the `workspace-consume` entitlement: without one, every API call returns 403 ("This API is disabled for users without …"). |
+| Databricks `sp-openclaw-reader` (`d70ea6d2…`) | `CAN_VIEW` on the job plus `CAN_READ` on the bundle files (top-level bundle `permissions`), and `BROWSE` on catalog `lakehouse` (granted by CLI; it's the only grant on the catalog besides the owner, since the UI's default `BROWSE` for `account users` was removed on 2026-10-17). Data and volume reads return 403. Entitlements: the reader has `workspace-access` (needed for `jobs/runs/get-output` and the workspace API; `workspace-consume` returns 403 "does not have access to Databricks Workspace" there), the runner only `workspace-consume`. Without any entitlement every API call returns 403. |
 | Airflow `investigator` (viewer) | Reads logs and runs; a run-create attempt returns 403. |
 | Airflow `dashboard` (user) | Starts DAG runs; held by the worker only. |
 | GitHub token | Read-only on this repo; write probes return 403. |
@@ -112,7 +112,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 ## Before connecting real production data
 
 See [data-residency.md](data-residency.md):
-- Check the Google Gemini API (backup model) and Healthchecks.io terms: data location and retention are not checked yet. The Gemini key's project must keep billing on.
+- Gemini API and Healthchecks.io terms checked 2026-10-17 (see data-residency.md): list Google as a processor with no fixed region. The Gemini key's project must keep billing on (free tier allows training).
 - A written no-training agreement from Moonshot, or switch the model provider.
-- Record or move the Databricks region (Mumbai, or recreate in Singapore).
+- Record the Databricks region (compute and storage in Mumbai since 2026-10-17) as a cross-border transfer, or move it (Singapore workspace, or a Bangkok bucket as the catalog's managed location).
 - Send reports to a LINE group and add teammates to Access when others join.

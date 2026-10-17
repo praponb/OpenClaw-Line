@@ -65,6 +65,11 @@ Live tests that day (`make eval-live`, 16:46–16:55): 29 of 30 checks passed.
 
 The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed "Databricks OAuth token request failed with HTTP 400". The pipeline moved to workspace `8259554454724321.1` (same metastore region, `asia-south1`):
 - Catalog `lakehouse` on Default Storage (created in the UI, the only way for Default Storage), schemas `bronze`, `silver`, `gold`. The `landing` volume is now a managed volume from the bundle instead of an external volume on the GCS bucket.
-- New service principals `sp-airflow-runner` (`5373a47d…`) and `sp-openclaw-reader` (`d70ea6d2…`) with `workspace-consume` only; secrets expire 2028-10-16. Reader has `BROWSE` on the catalog.
+- New service principals `sp-airflow-runner` (`5373a47d…`) and `sp-openclaw-reader` (`d70ea6d2…`) with `workspace-consume` (the reader moved to `workspace-access` the same day, see below); secrets expire 2028-10-16. Reader has `BROWSE` on the catalog.
 - New job id `74688628083610`; server `demo/.env` updated and Airflow, worker and gateway restarted.
-
+- 14:04: normal run through Airflow succeeded (5 tasks, 275 s); dashboard, costs and Unity Catalog lineage read the new job. PR #21 merged.
+- 16:30: Healthchecks.io alerts live (heartbeat and LINE checks green after a Test LINE message).
+- Catalog `lakehouse`: removed the UI's default `BROWSE` for `account users`; only the reader has a grant. Mac CLI profile `openclaw` re-pointed to the new workspace; the stale `lakehouse-audit` profile deleted.
+- Gemini API and Healthchecks.io terms checked and recorded in [data-residency.md](data-residency.md): no changes needed while data is synthetic. Decision: keep Mumbai for compute and storage until real data.
+- Roadmap: weekly `VACUUM` deferred (runs are manual and rare; housekeeping took 24 s); real systems wait for production access.
+- 16:38–16:52: live tests. `make eval-live` 29/30 (the `insufficient_evidence` miss is a test flaw: the scenario's source is now in GitHub and explains itself). A Databricks `schema_drift` run showed the reader got 403 on `runs/get-output` with only `workspace-consume`; the investigator correctly reported insufficient evidence. Reader switched to `workspace-access`.
