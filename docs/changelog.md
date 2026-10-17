@@ -63,7 +63,7 @@ Live tests that day (`make eval-live`, 16:46–16:55): 29 of 30 checks passed.
 
 ## 2026-10-17: new Databricks workspace
 
-PRs: #21 workspace move, #22 docs (provider terms, reader entitlement), #23 `insufficient_evidence` test fix, #24 prompt change. Open items at the end of the day are in [operations.md](operations.md#open-items-2026-10-17).
+PRs: #21 workspace move, #22 docs (provider terms, reader entitlement), #23 `insufficient_evidence` test fix, #24 prompt change. Open items are in [operations.md](operations.md#open-items).
 
 The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed "Databricks OAuth token request failed with HTTP 400". The pipeline moved to workspace `8259554454724321.1` (same metastore region, `asia-south1`):
 - Catalog `lakehouse` on Default Storage (created in the UI, the only way for Default Storage), schemas `bronze`, `silver`, `gold`. The `landing` volume is now a managed volume from the bundle instead of an external volume on the GCS bucket.
@@ -87,3 +87,10 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 | INC-WXG33H | Huge log (~5 MB) | Found the real error; report under 3,500 characters. |
 | INC-Q361EC | Big cascade | One investigation of `load_orders`; failed checks and blocked builds listed. |
 
+
+## 2026-10-18: small open items
+
+- 05:43–05:45: new Airflow `admin` and `investigator` passwords (set in the Mac's `demo/.env`) copied to the server's `demo/.env` (only those two lines); `make state`, Airflow restarted, worker and gateway recreated. New passwords return 201 from `/auth/token`, the old ones 401. Procedure added to [operations.md](operations.md#everyday-operations).
+- GCS bucket `praponb-lakehouse-raw`: nothing to delete by hand. Its project `praponb-lakehouse` is already shut down (`DELETE_REQUESTED`), so the bucket can't be reached and Google deletes it with the project. Nothing in the Databricks workspace refers to it.
+- Test DAG `investigator_scenarios`: Airflow marked it stale after the file was removed (last parsed 2026-10-17 17:31). It no longer runs; its old runs leave with the 90-day `airflow db clean`.
+- `make eval-live` warns about `Fact:` lines that read like a deduction or general knowledge (INC-T4B79W: "a missing file would raise FileNotFoundError"). A warning, not a failure: on the 24 stored reports it flags 3 lines, 2 mislabeled and 1 quoting a DAG comment. No prompt change.

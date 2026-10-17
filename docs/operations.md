@@ -61,7 +61,8 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Run the pipeline | Dashboard → Databricks card → **▶ Run pipeline** (normal run or a test fault). No schedule by choice. CLI alternative without Airflow or LINE: `make lakehouse-run [FAULT=schema_drift]`. |
 | Check LINE delivery | Dashboard → **🔔 Test LINE**. Uses one push from the monthly quota (300 on the current plan). |
 | Feedback review | `make feedback-report` (prompt versions, votes, triage time, MTTR, grounding check). |
-| Live investigator tests | On the server: `make eval-live` (4 scenarios, about $0.40 and 8 LINE pushes) or `make eval-live SCENARIOS="huge_log"`. Prints PASS/FAIL per check. Last full run 2026-10-17 17:43: 30/30. A Databricks check: Run pipeline with fault `schema_drift` (one investigation). |
+| Live investigator tests | On the server: `make eval-live` (4 scenarios, about $0.40 and 8 LINE pushes) or `make eval-live SCENARIOS="huge_log"`. Prints PASS/FAIL per check, and WARN for a `Fact:` line that reads like a deduction ("would", "likely", "suggests"…; AGENTS.md rule 3). Warnings don't fail the run: read the line and decide. Last full run 2026-10-17 17:43: 30/30. A Databricks check: Run pipeline with fault `schema_drift` (one investigation). |
+| Change Airflow passwords | Edit `AIRFLOW_*_PASSWORD` in the **server's** `demo/.env`, then `make state` (rewrites `passwords.json`), `docker compose … restart airflow`, and `docker compose … up -d ingestion-worker openclaw-gateway` (both read the viewer password from the environment). Check that `/auth/token` returns 201 for the new password and 401 for the old one. |
 | Resolve an incident | ✅ Resolved on the LINE card, or automatically when the DAG's next run succeeds (checked every 5 min). |
 | An alert email arrives | Heartbeat **down** with no ping: the worker or server is off (`ssh` in, `docker compose ps`). Heartbeat **down** after a `/fail`: the email shows the reason (gateway not ready, backup failed). **LINE** check down: the email shows the LINE error (expired token, quota used up); it goes up again with the next successful push, or use 🔔 Test LINE. |
 | Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |
@@ -123,9 +124,7 @@ See [data-residency.md](data-residency.md):
 - Record the Databricks region (compute and storage in Mumbai since 2026-10-17) as a cross-border transfer, or move it (Singapore workspace, or a Bangkok bucket as the catalog's managed location).
 - Send reports to a LINE group and add teammates to Access when others join.
 
-## Open items (2026-10-17)
+## Open items
 
-- Old GCS bucket `praponb-lakehouse-raw` (Bangkok) is unused since the workspace move and may still hold old landing files and tables: delete or keep (GCP console).
-- Airflow admin password: use 16+ characters (sync it to the server's `.env`, then `make state` and restart Airflow).
 - OpenClaw v2026.10.2 is available (pinned 2026.9.9); after an upgrade re-check Code Mode, Tool Search and tool visibility.
 - A Kimi → Gemini fallback run has never happened live.
