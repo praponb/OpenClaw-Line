@@ -93,7 +93,7 @@ demo-dashboard:
 feedback-report:
 	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
 
-# Live investigator tests (test DAGs investigator_scenarios / investigator_cascade):
+# Live investigator tests (test DAGs finance_nightly_jobs / investigator_cascade):
 # each scenario is a real investigation (model cost + 2 LINE pushes). Run on the Docker host.
 # make eval-live, or make eval-live SCENARIOS="prompt_injection cascade"
 eval-live:
