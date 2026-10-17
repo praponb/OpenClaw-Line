@@ -2,7 +2,7 @@
 # copied (not bind-mounted) so file ownership matches the `node` user and the
 # plugin loader's ownership check passes.
 # Stage the plugin first: `node scripts/stage-plugin.mjs` (see Makefile).
-ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.9.9
+ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.10.2
 FROM ${OPENCLAW_IMAGE}
 
 USER root
@@ -24,7 +24,7 @@ USER node
 # plugins.load.paths): agent runs only pick tools from plugins with an install record.
 # Pin the official plugins to the gateway version: unpinned installs pull the newest
 # release, which can require a newer plugin API than this image (build fails).
-ARG OPENCLAW_PLUGIN_VERSION=2026.9.9
+ARG OPENCLAW_PLUGIN_VERSION=2026.10.2
 RUN echo '{}' > /opt/openclaw/build.json5 \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/line@${OPENCLAW_PLUGIN_VERSION} \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/moonshot-provider@${OPENCLAW_PLUGIN_VERSION} \
