@@ -109,6 +109,23 @@ def checks(name: str, incidents: list[sqlite3.Row]) -> list[tuple[str, bool]]:
     return out
 
 
+# Words that mark a deduction or general knowledge. AGENTS.md rule 3 puts those under
+# "Hypothesis:", so a "Fact:" line using them is probably mislabeled (INC-T4B79W: "a
+# missing file would raise FileNotFoundError"). Only a warning: a fact can also quote
+# such a word from a log or a comment.
+DEDUCTION_WORDS = re.compile(r"\b(would|could|might|may|likely|probably|presumably|suggests?|typically|usually|normally|implies|expected to)\b", re.I)
+
+
+def fact_warnings(incidents: list[sqlite3.Row]) -> list[str]:
+    """"Fact:" lines that read like a deduction (warnings, not failures)."""
+    return [
+        line.strip()
+        for i in incidents
+        for line in (i["report_text"] or "").splitlines()
+        if line.strip().startswith("- Fact:") and DEDUCTION_WORDS.search(line)
+    ]
+
+
 def compose(*args: str, capture: bool = True) -> str:
     res = subprocess.run([*COMPOSE, *args], check=True, text=True, capture_output=capture)
     return res.stdout if capture else ""
@@ -125,7 +142,7 @@ def wait_for_dags(dag_ids: set[str]) -> None:
     sys.exit(f"Airflow did not load {sorted(dag_ids)} within 10 minutes")
 
 
-def run(s: Scenario) -> list[tuple[str, bool]]:
+def run(s: Scenario) -> list[sqlite3.Row]:
     # Same shape as Airflow's own manual run ids: the investigator sees the run id.
     run_id = f"manual__{datetime.now(timezone.utc).isoformat()}"
     if s.setup:
@@ -151,7 +168,7 @@ def run(s: Scenario) -> list[tuple[str, bool]]:
             break
     for r in rows:
         print(f"  {r['ref']}: task {r['task_id']}, triage {((r['report_sent_at'] or r['completed_at'] or 0) - (r['first_seen_at'] or 0)) / 1000:.0f}s", flush=True)
-    return checks(s.name, rows)
+    return rows
 
 
 def main(names: list[str]) -> int:
@@ -159,13 +176,19 @@ def main(names: list[str]) -> int:
     wait_for_dags({s.dag_id for s in chosen})
     for d in {s.dag_id for s in chosen}:
         compose("exec", "-T", "airflow", "airflow", "dags", "unpause", d)
-    failed = 0
+    failed = warned = 0
     for s in chosen:
         print(f"\n== {s.name}", flush=True)
-        for desc, ok in run(s):
+        rows = run(s)
+        for desc, ok in checks(s.name, rows):
             print(f"  {'PASS' if ok else 'FAIL'}  {desc}", flush=True)
             failed += not ok
+        for line in fact_warnings(rows):
+            print(f"  WARN  Fact line reads like a deduction: {line}", flush=True)
+            warned += 1
     print(f"\n{failed} check(s) failed" if failed else "\nAll checks passed")
+    if warned:
+        print(f"{warned} Fact line(s) to review (warnings, not failures)")
     return 1 if failed else 0
 
 
