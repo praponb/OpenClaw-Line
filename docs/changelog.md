@@ -63,6 +63,8 @@ Live tests that day (`make eval-live`, 16:46–16:55): 29 of 30 checks passed.
 
 ## 2026-10-17: new Databricks workspace
 
+PRs: #21 workspace move, #22 docs (provider terms, reader entitlement), #23 `insufficient_evidence` test fix, #24 prompt change. Open items at the end of the day are in [operations.md](operations.md#open-items-2026-10-17).
+
 The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed "Databricks OAuth token request failed with HTTP 400". The pipeline moved to workspace `8259554454724321.1` (same metastore region, `asia-south1`):
 - Catalog `lakehouse` on Default Storage (created in the UI, the only way for Default Storage), schemas `bronze`, `silver`, `gold`. The `landing` volume is now a managed volume from the bundle instead of an external volume on the GCS bucket.
 - New service principals `sp-airflow-runner` (`5373a47d…`) and `sp-openclaw-reader` (`d70ea6d2…`) with `workspace-consume` (the reader moved to `workspace-access` the same day, see below); secrets expire 2028-10-16. Reader has `BROWSE` on the catalog.
