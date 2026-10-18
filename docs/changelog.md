@@ -129,3 +129,10 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - 15:53: #33 and #34 merged; `~/prod-dags` pulled `0465f23`; scheduler and DAG processor restarted (the policy is loaded once per process). `housekeeping` has no callback (tag `no-openclaw`) and is unpaused.
 - 15:54–15:56: second production run of `daily_revenue_pipeline` → INC-NQMB6K: **2 callbacks for 2 failed tasks** (was 4), one investigation, report and feedback card in LINE.
 
+## 2026-10-18: production Databricks and go-live (phases 4–5)
+
+- Owner's choice: production uses the existing workspace `8259554454724321.1` (Mumbai) with the current service principals (runner `CAN_MANAGE_RUN`, reader `CAN_VIEW` + `BROWSE`). Recorded as a cross-border transfer in [data-residency.md](data-residency.md).
+- 16:02–16:07: production run of `databricks_daily_revenue` with `inject_fault=schema_drift` (DAG unpaused for the run, paused again) → INC-2JEDEM: the report quotes the Databricks error ("Schema drift … 213/213 events … Unexpected fields: amount_cents"), points to `databricks/src/03_silver_transactions.py` and commit `dc6b2e2b`, and takes the blast radius from Unity Catalog lineage (`lakehouse.silver.stripe_transactions`, `lakehouse.gold.daily_revenue`, blocked `gold_daily_revenue`). Report and feedback card delivered to LINE.
+- Live: production Airflow `http://192.168.1.49:8081` → worker → Vertex AI EU (Gemini 3.7 Flash, backup 3.6 Flash) → personal LINE chat. Production DAGs stay paused except `housekeeping` until the owner unpauses them.
+- Monitoring for the first 1–2 weeks: dashboard and `make feedback-report` daily (false alarms, WARN lines, cost per incident, LINE quota).
+
