@@ -136,6 +136,8 @@ Decided 2026-10-18: production Airflow runs **on the home server**, as its own C
 | Secrets in `demo/.env` | `PROD_AIRFLOW_ADMIN_PASSWORD`, `PROD_AIRFLOW_DB_PASSWORD`, `PROD_AIRFLOW_JWT_SECRET`, `PROD_AIRFLOW_FERNET_KEY`; Databricks runner as for the demo. |
 | Retention | Task logs: `housekeeping` DAG (unpause it). Metadata: crontab `25 3 * * *` `make -s prod-airflow-db-clean`. |
 
+DAG changes go live on the next `git pull` (the DAG processor re-parses). **A change to `airflow_local_settings.py` or the plugin needs a restart** (Airflow loads them once per process): `docker compose --env-file demo/.env -f airflow/production/docker-compose.yml restart scheduler dag-processor`.
+
 Start or update: `make prod-airflow-up` (the demo stack must be up: shared network). Logs: `docker compose --env-file demo/.env -f airflow/production/docker-compose.yml logs -f scheduler`.
 
 **Point the investigator at it (done 2026-10-18 15:44):** in `demo/.env` set `AIRFLOW_BASE_URL=http://airflow-prod:8080` and comment out `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off), then recreate the worker and gateway. Checks: the viewer gets a token; creating a run with it returns 403; an unsigned POST from the scheduler container to `ingestion-worker:8094` returns 401 and `/api/dashboard` there 404; a manual `daily_revenue_pipeline` run in production (fails on purpose) brings one report to LINE.
