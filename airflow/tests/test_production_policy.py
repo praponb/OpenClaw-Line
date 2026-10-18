@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,6 +45,18 @@ def test_does_not_wrap_the_notifier_itself():
     t = task(notify_openclaw)
     airflow_local_settings.task_policy(t)
     assert t.on_failure_callback is notify_openclaw
+
+
+def test_recognizes_a_reimported_notifier():
+    # Airflow's plugin manager loads openclaw_callback.py a second time: same name,
+    # different function object. The task must still get one notifier.
+    spec = importlib.util.spec_from_file_location("openclaw_callback", ROOT / "plugins" / "openclaw_callback.py")
+    copy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(copy)
+    assert copy.notify_openclaw is not notify_openclaw
+    t = task([copy.notify_openclaw])
+    airflow_local_settings.task_policy(t)
+    assert t.on_failure_callback == [copy.notify_openclaw]
 
 
 def test_skips_dags_tagged_no_openclaw():
