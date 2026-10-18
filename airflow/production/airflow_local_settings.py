@@ -28,6 +28,15 @@ except ImportError:  # plugin not installed: leave every task as it is
     log.warning("openclaw_callback not importable; OpenClaw failure notifications are off")
 
 
+def _is_notifier(callback: Any) -> bool:
+    # Compared by name: Airflow's plugin manager imports openclaw_callback.py again as
+    # a new module object, so a DAG's own notify_openclaw is a different function.
+    return callback is notify_openclaw or (
+        getattr(callback, "__module__", None) == notify_openclaw.__module__
+        and getattr(callback, "__qualname__", None) == notify_openclaw.__qualname__
+    )
+
+
 def task_policy(task: Any) -> None:
     if notify_openclaw is None:
         return
@@ -38,7 +47,7 @@ def task_policy(task: Any) -> None:
     if not current:
         task.on_failure_callback = notify_openclaw
     elif isinstance(current, (list, tuple)):
-        if notify_openclaw not in current:
+        if not any(_is_notifier(c) for c in current):
             task.on_failure_callback = [*current, notify_openclaw]
-    elif current is not notify_openclaw:
+    elif not _is_notifier(current):
         task.on_failure_callback = [current, notify_openclaw]

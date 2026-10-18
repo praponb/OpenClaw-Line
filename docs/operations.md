@@ -130,7 +130,7 @@ Decided 2026-10-18: production Airflow runs **on the home server**, as its own C
 | Piece | Setting |
 |---|---|
 | DAGs, plugin, cluster policy | Read-only clone `~/prod-dags` of `https://github.com/praponb/OpenClaw-Line.git` (public, no credentials), `main`; mounted read-only (`airflow/dags`, `airflow/plugins`, `airflow/production` as the config folder). Crontab: `*/10 * * * * git -C $HOME/prod-dags pull -q --ff-only`. Only merged code runs in production. |
-| Callbacks | `airflow_local_settings.py` appends `notify_openclaw` to every task (DAGs tagged `no-openclaw`, e.g. `housekeeping`, are skipped). They go to `http://ingestion-worker:8094/v1/airflow/failure`, the failure-only listener, over the demo stack's network `openclaw-line-demo_default`: no new LAN port, no ufw rule. |
+| Callbacks | `airflow_local_settings.py` appends `notify_openclaw` to every task that lacks it (matched by name: the plugin manager imports the plugin twice) (DAGs tagged `no-openclaw`, e.g. `housekeeping`, are skipped). They go to `http://ingestion-worker:8094/v1/airflow/failure`, the failure-only listener, over the demo stack's network `openclaw-line-demo_default`: no new LAN port, no ufw rule. |
 | Accounts | Simple auth manager: `admin` (`PROD_AIRFLOW_ADMIN_PASSWORD`) and `investigator` (Viewer, same `AIRFLOW_VIEWER_PASSWORD` as the demo). No `dashboard` (user) account. |
 | UI | `http://192.168.1.49:8081` (`PROD_AIRFLOW_BIND_ADDRESS`, `PROD_AIRFLOW_HOST_PORT`, `PROD_AIRFLOW_PUBLIC_URL`). New DAGs start paused. |
 | Secrets in `demo/.env` | `PROD_AIRFLOW_ADMIN_PASSWORD`, `PROD_AIRFLOW_DB_PASSWORD`, `PROD_AIRFLOW_JWT_SECRET`, `PROD_AIRFLOW_FERNET_KEY`; Databricks runner as for the demo. |
@@ -138,7 +138,7 @@ Decided 2026-10-18: production Airflow runs **on the home server**, as its own C
 
 Start or update: `make prod-airflow-up` (the demo stack must be up: shared network). Logs: `docker compose --env-file demo/.env -f airflow/production/docker-compose.yml logs -f scheduler`.
 
-**Point the investigator at it:** in `demo/.env` set `AIRFLOW_BASE_URL=http://airflow-prod:8080` and comment out `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off), then recreate the worker and gateway. Checks: the viewer gets a token; creating a run with it returns 403; an unsigned POST from the scheduler container to `ingestion-worker:8094` returns 401 and `/api/dashboard` there 404; a manual `daily_revenue_pipeline` run in production (fails on purpose) brings one report to LINE.
+**Point the investigator at it (done 2026-10-18 15:44):** in `demo/.env` set `AIRFLOW_BASE_URL=http://airflow-prod:8080` and comment out `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off), then recreate the worker and gateway. Checks: the viewer gets a token; creating a run with it returns 403; an unsigned POST from the scheduler container to `ingestion-worker:8094` returns 401 and `/api/dashboard` there 404; a manual `daily_revenue_pipeline` run in production (fails on purpose) brings one report to LINE.
 
 **Live tests afterwards** (`make eval-live` triggers the demo Airflow): recreate the worker and gateway with `AIRFLOW_BASE_URL=http://airflow:8080` as a shell variable for the run, then recreate them again without it.
 
