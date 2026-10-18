@@ -1,0 +1,118 @@
+# Production Airflow on the home server: Airflow 3 with Postgres and LocalExecutor,
+# separate from the demo Airflow (demo/docker-compose.yml) that `make eval-live` uses.
+# Use the Makefile targets (make prod-airflow-up, prod-airflow-db-clean). Settings
+# come from the demo stack's env file (secrets in one place): PROD_AIRFLOW_* plus
+# WEBHOOK_SECRET, AIRFLOW_VIEWER_PASSWORD and the Databricks runner.
+#
+# DAGs, the OpenClaw plugin and the cluster policy are read from a read-only git
+# clone (PROD_DAGS_REPO, refreshed by cron `git pull`), never from this rsync copy.
+# Failure callbacks go to the worker's failure-only listener over the demo stack's
+# network, so nothing new is opened on the LAN except the UI/API port.
+name: openclaw-line-prod-airflow
+
+x-airflow: &airflow
+  # Stock Airflow plus the Databricks provider, the same image as the demo Airflow.
+  image: openclaw-line/airflow:local
+  build:
+    context: ../..
+    dockerfile: demo/airflow.Dockerfile
+    args:
+      AIRFLOW_IMAGE: ${AIRFLOW_IMAGE:-apache/airflow:3.3.2}
+  restart: unless-stopped
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${PROD_AIRFLOW_DB_PASSWORD:?set PROD_AIRFLOW_DB_PASSWORD}@postgres/airflow
+    # Shared by all components: task tokens (JWT) and stored connection secrets.
+    AIRFLOW__API_AUTH__JWT_SECRET: ${PROD_AIRFLOW_JWT_SECRET:?set PROD_AIRFLOW_JWT_SECRET}
+    AIRFLOW__CORE__FERNET_KEY: ${PROD_AIRFLOW_FERNET_KEY:?set PROD_AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    # New DAGs stay paused until someone unpauses them in the UI.
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+    # Read-only principle: no account that can start runs except admin.
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin,investigator:viewer"
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/auth/passwords.json
+    # URL your browser uses for the UI (login redirects and log links).
+    AIRFLOW__API__BASE_URL: ${PROD_AIRFLOW_PUBLIC_URL:-http://localhost:8081}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://api-server:8080/execution/
+    # Cluster policy (config/airflow_local_settings.py) attaches this to every task.
+    OPENCLAW_INGEST_URL: http://ingestion-worker:8094/v1/airflow/failure
+    OPENCLAW_WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set WEBHOOK_SECRET}
+    STRIPE_EVENTS_PATH: /opt/airflow/data/stripe_events.json
+    DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID:-}
+    AIRFLOW_CONN_DATABRICKS_DEFAULT: '{"conn_type": "databricks", "host": "${DATABRICKS_HOST:-}", "login": "${DATABRICKS_RUNNER_CLIENT_ID:-}", "password": "${DATABRICKS_RUNNER_CLIENT_SECRET:-}", "extra": {"service_principal_oauth": true}}'
+  volumes:
+    - ${PROD_DAGS_REPO:-../../../prod-dags}/airflow/dags:/opt/airflow/dags:ro
+    - ${PROD_DAGS_REPO:-../../../prod-dags}/airflow/plugins:/opt/airflow/plugins:ro
+    - ${PROD_DAGS_REPO:-../../../prod-dags}/airflow/production:/opt/airflow/config:ro
+    - ${PROD_DAGS_REPO:-../../../prod-dags}/demo/fixtures:/opt/airflow/data:ro
+    - ../../demo/.state/prod-airflow-auth:/opt/airflow/auth
+    # Task logs, shared so the API server can serve what the scheduler's tasks write.
+    - logs:/opt/airflow/logs
+  depends_on:
+    airflow-init:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${PROD_AIRFLOW_DB_PASSWORD:?set PROD_AIRFLOW_DB_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 10
+
+  airflow-init:
+    <<: *airflow
+    restart: "no"
+    command: ["db", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-server:
+    <<: *airflow
+    command: api-server
+    ports:
+      - "${PROD_AIRFLOW_BIND_ADDRESS:-127.0.0.1}:${PROD_AIRFLOW_HOST_PORT:-8081}:8080"
+    networks:
+      default: {}
+      # The investigator reads this Airflow at http://airflow-prod:8080.
+      openclaw:
+        aliases: [airflow-prod]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=5)"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+
+  # Runs the tasks (LocalExecutor), so it sends the failure callbacks.
+  scheduler:
+    <<: *airflow
+    command: scheduler
+    networks: [default, openclaw]
+
+  dag-processor:
+    <<: *airflow
+    command: dag-processor
+    networks: [default, openclaw]
+
+  triggerer:
+    <<: *airflow
+    command: triggerer
+
+volumes:
+  db:
+  logs:
+
+networks:
+  # The demo stack's network (ingestion worker, gateway); it must be up first.
+  openclaw:
+    external: true
+    name: openclaw-line-demo_default

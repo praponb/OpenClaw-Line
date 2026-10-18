@@ -11,8 +11,8 @@ import airflow_local_settings  # noqa: E402
 from openclaw_callback import notify_openclaw  # noqa: E402
 
 
-def task(callback=None):
-    return SimpleNamespace(on_failure_callback=callback)
+def task(callback=None, tags=()):
+    return SimpleNamespace(on_failure_callback=callback, dag=SimpleNamespace(tags=set(tags)))
 
 
 def test_sets_notifier_when_task_has_no_callback():
@@ -44,6 +44,12 @@ def test_does_not_wrap_the_notifier_itself():
     t = task(notify_openclaw)
     airflow_local_settings.task_policy(t)
     assert t.on_failure_callback is notify_openclaw
+
+
+def test_skips_dags_tagged_no_openclaw():
+    t = task(tags={"maintenance", "no-openclaw"})
+    airflow_local_settings.task_policy(t)
+    assert t.on_failure_callback is None
 
 
 def test_leaves_tasks_alone_without_the_plugin(monkeypatch):

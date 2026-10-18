@@ -116,3 +116,9 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - 08:25–08:33: `make eval-live` **30/30 passed**, no WARN (INC-1MV3BX, INC-1MCHME, INC-SR1QS0, INC-8943CB); triage 55–67 s; $0.022–0.031 per incident.
 - 08:34–08:36: forced fallback (gateway started once with `OPENCLAW_MODEL=google-vertex/gemini-9.9-flash` as a shell variable): `model_not_found`, then `google-vertex/gemini-3.6-flash` wrote INC-5S6NYY, 8/8, $0.036; the dashboard shows the 3.6 model. Gateway restored and checked (3.7 → 3.6, `eu`).
 
+## 2026-10-18: production Airflow on the home server (phase 3)
+
+- Owner's choices: production Airflow on 192.168.1.49 in Docker, newest Airflow (3.3.2), a separate stack from the demo, running this repository's DAGs from a read-only clone; viewer account created by us.
+- `airflow/production/docker-compose.yml` (Postgres, LocalExecutor, 4 Airflow components; callbacks over the demo network to the failure-only listener), `make prod-airflow-up` / `prod-airflow-db-clean`; cluster policy skips DAGs tagged `no-openclaw` (`housekeeping`).
+- Server: clone `~/prod-dags` (main 1b2f27e) and `PROD_AIRFLOW_*` secrets added to `demo/.env` (appended). Starting the stack is waiting for the owner.
+

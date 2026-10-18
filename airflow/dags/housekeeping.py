@@ -2,7 +2,8 @@
 
 Daily at 03:00 Bangkok: delete task log files older than AIRFLOW_LOG_RETENTION_DAYS
 (default 30). Local only: no Databricks, model or LINE cost. No OpenClaw callback:
-a housekeeping failure shows in the Airflow UI instead of paging LINE.
+a housekeeping failure shows in the Airflow UI instead of paging LINE (tag
+"no-openclaw" keeps the production cluster policy from adding one).
 
 Metadata cleanup (`airflow db clean`) can't run here: Airflow 3 tasks have no access
 to the metadata database by design. Use `make airflow-db-clean` (or cron it) instead.
@@ -26,7 +27,7 @@ LOG_DAYS = int(os.environ.get("AIRFLOW_LOG_RETENTION_DAYS", "30"))
     start_date=datetime(2026, 10, 1, tzinfo=pendulum.timezone("Asia/Bangkok")),
     catchup=False,
     default_args={"owner": "platform", "retries": 0},
-    tags=["maintenance", "retention"],
+    tags=["maintenance", "retention", "no-openclaw"],
 )
 def housekeeping():
     BashOperator(
