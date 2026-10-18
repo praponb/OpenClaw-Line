@@ -118,7 +118,7 @@
         // strict unless they list their own fallbacks. Needs GEMINI_API_KEY.
         model: {
           primary: "${OPENCLAW_MODEL}", // moonshot/kimi-k3
-          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google/gemini-3.5-flash
+          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google/gemini-3.8-flash
         },
         skills: [],
         // Read-only enforcement at the platform level: the investigator only

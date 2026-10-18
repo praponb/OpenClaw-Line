@@ -12,7 +12,7 @@ x-openclaw-env: &openclaw-env
   MOONSHOT_BASE_URL: ${MOONSHOT_BASE_URL:-https://api.moonshot.ai/v1}
   # Backup model when Kimi K3 fails (openclaw/openclaw.json5). Without a key the
   # fallback attempt fails too and the worker sends its fallback notice.
-  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.5-flash}
+  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.8-flash}
   # Google AI Studio key (OpenClaw also accepts GOOGLE_API_KEY).
   GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-unset}
@@ -138,7 +138,7 @@ services:
       MODEL_PRICE_OUTPUT_PER_MTOK: ${MODEL_PRICE_OUTPUT_PER_MTOK:-}
       MODEL_PRICE_CACHE_READ_PER_MTOK: ${MODEL_PRICE_CACHE_READ_PER_MTOK:-}
       # Calls answered by the fallback model are priced with these.
-      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.5-flash}
+      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.8-flash}
       FALLBACK_MODEL_PRICE_INPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_INPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK: ${FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK:-}
