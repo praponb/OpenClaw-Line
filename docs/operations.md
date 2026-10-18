@@ -123,17 +123,28 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | 2027-01-01 | Gemini 3.8 Flash prices double. Set `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=1.50`, `…_OUTPUT_PER_MTOK=7.50`, `…_CACHE_READ_PER_MTOK=0.15` in the server's `demo/.env` and restart the worker. |
 | 2028-10-16 | Databricks service principal OAuth secrets expire (created 2026-10-17 for workspace `8259554454724321.1`). |
 
-## Production Airflow (phases 3–5, waiting for details)
+## Production Airflow
 
-The stack can watch an Airflow 3 on another LAN host (2026-10-18). Needed from the owner: that Airflow's URL, exact version and auth manager, an admin login to create the viewer, the DAG git repository location, and the production Databricks host and region.
+Decided 2026-10-18: production Airflow runs **on the home server**, as its own Compose project `openclaw-line-prod-airflow` (`airflow/production/docker-compose.yml`): Airflow 3.3.2 (newest), Postgres 16, LocalExecutor, separate api-server, scheduler, DAG processor and triggerer. The demo Airflow stays for `make eval-live`.
 
-1. **Investigator target:** in the server's `demo/.env`, set `AIRFLOW_BASE_URL=http://<prod-airflow>:8080`, `AIRFLOW_API_VERSION=v2`, `AIRFLOW_VIEWER_USERNAME`/`AIRFLOW_VIEWER_PASSWORD` (a Viewer-role user), `COMPOSE_PROFILES=` (no demo Airflow container; make targets read it too), and remove `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off). Check: the viewer gets a token from `/auth/token`; creating a run returns 403.
-2. **Callbacks:** set `INGEST_BIND_ADDRESS=192.168.1.49` (the worker always listens on 8094 inside the container; `INGEST_HOST_PORT` changes the host port). Firewall, with sudo: `sudo ufw allow from <prod-airflow-ip> to any port 8094 proto tcp`, and no other rule for 8094. In production Airflow: copy `airflow/plugins/openclaw_callback.py` to its plugins folder and `airflow/production/airflow_local_settings.py` to `$AIRFLOW_HOME/config`, set `OPENCLAW_INGEST_URL=http://192.168.1.49:8094/v1/airflow/failure` and `OPENCLAW_WEBHOOK_SECRET=<WEBHOOK_SECRET>` on the scheduler, DAG processor and workers, then restart them. Check from the Airflow host: unsigned POST → 401, `/api/dashboard` → 404; from another host the port is closed.
-3. **Git evidence:** clone the DAG repository read-only on the server, set `GIT_REPO_DIR=<clone>` and `GIT_PROVIDER=local`, and add a crontab line `*/10 * * * * cd <clone> && git pull -q --ff-only`.
-4. **Demo Airflow:** stop it and remove the crontab `make airflow-db-clean` line. For `make eval-live` before an upgrade, start a temporary `COMPOSE_PROFILES=demo` stack pointed at the demo Airflow.
-5. **Databricks:** a production reader SP (`CAN_VIEW` on the jobs, `BROWSE` on the catalogs, `workspace-access`), then `DATABRICKS_HOST`/`DATABRICKS_READER_CLIENT_*`.
+| Piece | Setting |
+|---|---|
+| DAGs, plugin, cluster policy | Read-only clone `~/prod-dags` of `https://github.com/praponb/OpenClaw-Line.git` (public, no credentials), `main`; mounted read-only (`airflow/dags`, `airflow/plugins`, `airflow/production` as the config folder). Crontab: `*/10 * * * * git -C $HOME/prod-dags pull -q --ff-only`. Only merged code runs in production. |
+| Callbacks | `airflow_local_settings.py` appends `notify_openclaw` to every task (DAGs tagged `no-openclaw`, e.g. `housekeeping`, are skipped). They go to `http://ingestion-worker:8094/v1/airflow/failure`, the failure-only listener, over the demo stack's network `openclaw-line-demo_default`: no new LAN port, no ufw rule. |
+| Accounts | Simple auth manager: `admin` (`PROD_AIRFLOW_ADMIN_PASSWORD`) and `investigator` (Viewer, same `AIRFLOW_VIEWER_PASSWORD` as the demo). No `dashboard` (user) account. |
+| UI | `http://192.168.1.49:8081` (`PROD_AIRFLOW_BIND_ADDRESS`, `PROD_AIRFLOW_HOST_PORT`, `PROD_AIRFLOW_PUBLIC_URL`). New DAGs start paused. |
+| Secrets in `demo/.env` | `PROD_AIRFLOW_ADMIN_PASSWORD`, `PROD_AIRFLOW_DB_PASSWORD`, `PROD_AIRFLOW_JWT_SECRET`, `PROD_AIRFLOW_FERNET_KEY`; Databricks runner as for the demo. |
+| Retention | Task logs: `housekeeping` DAG (unpause it). Metadata: crontab `25 3 * * *` `make -s prod-airflow-db-clean`. |
 
-Rollback: unset `OPENCLAW_INGEST_URL` in production Airflow (the callback logs "disabled" and never fails a task); set `AIRFLOW_BASE_URL` back and `COMPOSE_PROFILES=demo`.
+Start or update: `make prod-airflow-up` (the demo stack must be up: shared network). Logs: `docker compose --env-file demo/.env -f airflow/production/docker-compose.yml logs -f scheduler`.
+
+**Point the investigator at it:** in `demo/.env` set `AIRFLOW_BASE_URL=http://airflow-prod:8080` and comment out `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off), then recreate the worker and gateway. Checks: the viewer gets a token; creating a run with it returns 403; an unsigned POST from the scheduler container to `ingestion-worker:8094` returns 401 and `/api/dashboard` there 404; a manual `daily_revenue_pipeline` run in production (fails on purpose) brings one report to LINE.
+
+**Live tests afterwards** (`make eval-live` triggers the demo Airflow): recreate the worker and gateway with `AIRFLOW_BASE_URL=http://airflow:8080` as a shell variable for the run, then recreate them again without it.
+
+**Another Airflow host instead:** set `INGEST_BIND_ADDRESS` to the server's LAN IP (published port `INGEST_HOST_PORT`, default 8094) and point that Airflow's `OPENCLAW_INGEST_URL` at it. Docker-published ports bypass ufw's INPUT rules, so restrict them in the `DOCKER-USER` chain (or bind to an interface only that host reaches).
+
+Rollback: comment out `AIRFLOW_BASE_URL` (back to the demo Airflow) and recreate the worker and gateway; stop production with `docker compose … -f airflow/production/docker-compose.yml stop`. The callback never fails a task.
 
 ## Before connecting real production data
 

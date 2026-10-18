@@ -8,7 +8,8 @@ Install on the production Airflow (scheduler, DAG processor and workers):
 - set OPENCLAW_INGEST_URL and OPENCLAW_WEBHOOK_SECRET (see openclaw_callback.py).
 
 Existing failure callbacks are kept: the notifier is appended, never replaces one.
-If the notifier can't be imported, tasks are left unchanged.
+If the notifier can't be imported, tasks are left unchanged. DAGs tagged
+"no-openclaw" (e.g. housekeeping) are left alone too.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import logging
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+OPT_OUT_TAG = "no-openclaw"
 
 try:
     from openclaw_callback import notify_openclaw
@@ -27,6 +30,9 @@ except ImportError:  # plugin not installed: leave every task as it is
 
 def task_policy(task: Any) -> None:
     if notify_openclaw is None:
+        return
+    dag = getattr(task, "dag", None)
+    if dag is not None and OPT_OUT_TAG in (getattr(dag, "tags", None) or ()):
         return
     current = task.on_failure_callback
     if not current:

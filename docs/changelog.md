@@ -116,3 +116,11 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - 08:25–08:33: `make eval-live` **30/30 passed**, no WARN (INC-1MV3BX, INC-1MCHME, INC-SR1QS0, INC-8943CB); triage 55–67 s; $0.022–0.031 per incident.
 - 08:34–08:36: forced fallback (gateway started once with `OPENCLAW_MODEL=google-vertex/gemini-9.9-flash` as a shell variable): `model_not_found`, then `google-vertex/gemini-3.6-flash` wrote INC-5S6NYY, 8/8, $0.036; the dashboard shows the 3.6 model. Gateway restored and checked (3.7 → 3.6, `eu`).
 
+## 2026-10-18: production Airflow on the home server (phase 3)
+
+- Owner's choices: production Airflow on 192.168.1.49 in Docker, newest Airflow (3.3.2), a separate stack from the demo, running this repository's DAGs from a read-only clone; viewer account created by us.
+- `airflow/production/docker-compose.yml` (Postgres, LocalExecutor, 4 Airflow components; callbacks over the demo network to the failure-only listener), `make prod-airflow-up` / `prod-airflow-db-clean`; cluster policy skips DAGs tagged `no-openclaw` (`housekeeping`).
+- Server: clone `~/prod-dags` (main 1b2f27e) and `PROD_AIRFLOW_*` secrets added to `demo/.env` (appended).
+- 15:37: `make prod-airflow-up` (owner's go-ahead): all components up, api-server healthy, UI at `http://192.168.1.49:8081`; 5 DAGs parsed, no import errors, all paused. The cluster policy attaches `notify_openclaw` to every task (`housekeeping` too until this PR is merged and pulled: keep it paused until then). Crontab: `git pull` of `~/prod-dags` every 10 min, `make prod-airflow-db-clean` at 03:25.
+- Checks: viewer token 201, reads 200, creating a run 403, unpausing a DAG 403; from the scheduler container an unsigned `POST ingestion-worker:8094/v1/airflow/failure` 401, and `/api/dashboard`, `/healthz`, `/v1/openclaw/report` on 8094 return 404. The investigator still reads the demo Airflow (switch waiting for the owner).
+

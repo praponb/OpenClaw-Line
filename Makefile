@@ -135,3 +135,21 @@ airflow-db-clean:
 	$(COMPOSE) exec -T airflow airflow db clean \
 	  --clean-before-timestamp "$$(date -u -d '-$(AIRFLOW_METADATA_RETENTION_DAYS) days' +%Y-%m-%dT%H:%M:%S+00:00)" --skip-archive --yes
 
+# Production Airflow (airflow/production/docker-compose.yml): DAGs from the read-only
+# clone PROD_DAGS_REPO (default ~/prod-dags). The demo stack must be up (shared network).
+PROD_AIRFLOW := docker compose --env-file demo/.env -f airflow/production/docker-compose.yml
+.PHONY: prod-airflow-state prod-airflow-up prod-airflow-db-clean
+prod-airflow-state:
+	@mkdir -p $(STATE)/prod-airflow-auth
+	@set -a; source demo/.env; set +a; umask 077; \
+	  printf '{"admin": "%s", "investigator": "%s"}\n' "$$PROD_AIRFLOW_ADMIN_PASSWORD" "$$AIRFLOW_VIEWER_PASSWORD" \
+	  > $(STATE)/prod-airflow-auth/passwords.json
+
+prod-airflow-up: prod-airflow-state
+	$(PROD_AIRFLOW) up -d --build
+
+# Server crontab: 25 3 * * * PATH=/usr/local/bin:/usr/bin:/bin; cd $HOME/OpenClaw-Line && make -s prod-airflow-db-clean > demo/.state/prod-airflow-db-clean.log 2>&1
+prod-airflow-db-clean:
+	$(PROD_AIRFLOW) exec -T scheduler airflow db clean \
+	  --clean-before-timestamp "$$(date -u -d '-$(AIRFLOW_METADATA_RETENTION_DAYS) days' +%Y-%m-%dT%H:%M:%S+00:00)" --skip-archive --yes
+
