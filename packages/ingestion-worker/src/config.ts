@@ -8,6 +8,8 @@ import type { TriggerConfig } from "./pipelineTrigger.js";
 
 export type WorkerConfig = {
   port: number;
+  /** Callback-only listener (`/v1/airflow/failure`) for an Airflow on another host. Off unless INGEST_PORT is set. */
+  ingestPort?: number;
   webhookSecret: string;
   dedupeWindowMs: number;
   dedupeTtlMs: number;
@@ -71,6 +73,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
   const airflowUrl = envOptional(env, "AIRFLOW_BASE_URL");
   return {
     port: envInt(env, "PORT", 8080),
+    ingestPort: envOptional(env, "INGEST_PORT") === undefined ? undefined : envInt(env, "INGEST_PORT", 8094),
     webhookSecret: envString(env, "WEBHOOK_SECRET"),
     dedupeWindowMs: envInt(env, "DEDUPE_WINDOW_S", 60) * 1000,
     dedupeTtlMs: envInt(env, "DEDUPE_TTL_S", 6 * 3600) * 1000,

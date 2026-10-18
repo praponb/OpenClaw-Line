@@ -1,5 +1,10 @@
 SHELL := /bin/bash
 COMPOSE := docker compose --env-file demo/.env -f demo/docker-compose.yml
+# The demo Airflow container is in compose profile "demo". COMPOSE_PROFILES comes
+# from demo/.env when the line is there (empty = another Airflow via
+# AIRFLOW_BASE_URL, no demo container), otherwise "demo".
+COMPOSE_PROFILES ?= $(shell grep -q '^COMPOSE_PROFILES=' demo/.env 2>/dev/null && sed -n 's/^COMPOSE_PROFILES=//p' demo/.env | tail -1 || echo demo)
+export COMPOSE_PROFILES
 STATE := demo/.state
 
 .PHONY: airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report eval-live demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run

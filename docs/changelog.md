@@ -105,3 +105,11 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - Backup model changed from `google/gemini-3.5-flash` (served by Google as Gemini 3.6 Flash) to `google/gemini-3.8-flash` (compose default). Same paid-tier prices (0.75 / 3.75 / 0.075 per 1M tokens, doubling 2027-01-01) and data terms, so `FALLBACK_MODEL_PRICE_*` is unchanged.
 - 07:12–07:17: first live **Kimi → Gemini fallback** (gateway started with an invalid Moonshot key, then restored from `demo/.env`). Moonshot returned 401, OpenClaw chose `fallback_model` (reason `auth`) and `google/gemini-3.8-flash` wrote the report: INC-5J2A65 (`prompt_injection`), 8/8 checks, triage 74 s, $0.030 priced with `FALLBACK_MODEL_PRICE_*`; dashboard shows the Gemini model. No error message reached LINE.
 - MTTR watcher logs "could not list runs of investigator_scenarios: Airflow API 404" since the DAG's history was removed; it stops when its 6 open incidents (2026-10-17) leave the 7-day lookback, around 2026-10-24.
+
+## 2026-10-18: production migration, phases 1–2
+
+- GCP project `gen-lang-client-0143309127`: Vertex AI API on; service account `openclaw-vertex` with only `roles/aiplatform.user`; its key on the server in `demo/.state/vertex/` (mode 600, mounted read-only at `/run/vertex`).
+- Compose: `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` passed to the gateway; `AIRFLOW_BASE_URL`, `AIRFLOW_VIEWER_USERNAME` and `GIT_REPO_DIR` configurable; the `airflow` service moved to profile `demo` (the worker no longer requires it); new `INGEST_PORT` listener 8094 that serves only `POST /v1/airflow/failure`. Makefile reads `COMPOSE_PROFILES` from `demo/.env` (default `demo`).
+- `airflow/production/airflow_local_settings.py`: cluster policy that appends `notify_openclaw` to every task, keeping existing callbacks (5 tests; checked on Airflow 3.3).
+- 07:55: server switched to `google-vertex/gemini-3.7-flash` → `google-vertex/gemini-3.6-flash` in `asia-southeast1`. `models status` showed the chain and "gcloud adc" auth, but every call returned 404: Gemini 3.x Flash isn't served in Singapore (only on `global`, `us`, `eu`). `make eval-live` stopped after 2 scenarios (INC-4RHYBH, INC-VY44E8: fallback notices only, no report). `GOOGLE_CLOUD_LOCATION` set to `eu` in the server's `demo/.env`; the gateway still has to be recreated to use it.
+

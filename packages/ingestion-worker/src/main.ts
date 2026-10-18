@@ -4,7 +4,7 @@ import { createWorker } from "./server.js";
 
 const cfg = loadConfig();
 const dispatcher = cfg.dryRun ? new FileDispatcher(cfg.incidentDir) : new HookDispatcher(cfg.openclaw);
-const { server, publicServer, dashboardServer, aggregator, store, resolutionWatcher, alerts, backup, healthProblems } = createWorker(cfg, dispatcher);
+const { server, publicServer, dashboardServer, ingestServer, aggregator, store, resolutionWatcher, alerts, backup, healthProblems } = createWorker(cfg, dispatcher);
 
 // Failure windows that were open when the worker last stopped (incident log only).
 const restored = aggregator.restore();
@@ -21,6 +21,12 @@ if (publicServer && cfg.feedback) {
   });
 } else {
   console.info("[worker] feedback disabled (LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET not set)");
+}
+
+if (ingestServer && cfg.ingestPort !== undefined) {
+  ingestServer.listen(cfg.ingestPort, () => {
+    console.info(`[worker] Airflow callbacks also on :${cfg.ingestPort}/v1/airflow/failure (failure route only)`);
+  });
 }
 
 if (dashboardServer && cfg.dashboard) {
@@ -80,6 +86,7 @@ const shutdown = async () => {
   server.close();
   publicServer?.close();
   dashboardServer?.close();
+  ingestServer?.close();
   if (aggregator.persistent) {
     // Saved in the incident log; the next start resumes them.
     console.info(`[worker] shutting down; ${aggregator.pendingCount} pending incident(s) resume on the next start`);
