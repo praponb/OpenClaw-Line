@@ -136,3 +136,8 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - Live: production Airflow `http://192.168.1.49:8081` → worker → Vertex AI EU (Gemini 3.7 Flash, backup 3.6 Flash) → personal LINE chat. Production DAGs stay paused except `housekeeping` until the owner unpauses them.
 - Monitoring for the first 1–2 weeks: dashboard and `make feedback-report` daily (false alarms, WARN lines, cost per incident, LINE quota).
 
+## 2026-10-18: small follow-ups
+
+- `make eval-live` works again with the investigator on production Airflow: `demo/with_demo_airflow.sh` points the worker and gateway at the demo Airflow for the run and restores them from `demo/.env` (also on failure or Ctrl-C), waiting for `"investigating": 0` before each restart. Tested 16:14–16:17 Bangkok: `make eval-live SCENARIOS="prompt_injection"` → INC-KJC1H3 8/8, then worker and gateway back on `http://airflow-prod:8080`.
+- operations.md "Dates to remember": on 2027-01-01 both Vertex models' prices double, so `MODEL_PRICE_*` changes too, not only `FALLBACK_MODEL_PRICE_*`.
+

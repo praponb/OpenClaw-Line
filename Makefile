@@ -101,8 +101,14 @@ feedback-report:
 # Live investigator tests (test DAGs finance_nightly_jobs / investigator_cascade):
 # each scenario is a real investigation (model cost + 2 LINE pushes). Run on the Docker host.
 # make eval-live, or make eval-live SCENARIOS="prompt_injection cascade"
+# When demo/.env points the investigator at another Airflow (AIRFLOW_BASE_URL), the
+# worker and gateway read the demo Airflow for the run and are restored afterwards.
 eval-live:
-	python3 demo/eval_live.py $(SCENARIOS)
+	@if grep -q '^AIRFLOW_BASE_URL=' demo/.env && ! grep -q '^AIRFLOW_BASE_URL=http://airflow:8080$$' demo/.env; then \
+	  demo/with_demo_airflow.sh python3 demo/eval_live.py $(SCENARIOS); \
+	else \
+	  python3 demo/eval_live.py $(SCENARIOS); \
+	fi
 
 # Stops and removes containers; keeps Airflow history (airflow-home volume) and demo/.state.
 demo-down:
