@@ -10,7 +10,7 @@ This is an engineering review, not legal advice. Use it as input for a Thai PDPA
 
 | # | Finding | Severity |
 |---|---|---|
-| 1 | **Databricks processes the pipeline in India.** The workspace's Unity Catalog metastore is `asia-south1` (Mumbai). Since 2026-10-17 (new workspace `8259554454724321.1`), raw files and managed tables are on the workspace's Default Storage, a Databricks-managed bucket in the workspace region, so data at rest is in Mumbai too; before that they were in a Bangkok bucket (`asia-southeast3`). **Decision (2026-10-11): stay in Mumbai while the data is synthetic; revisit before real data** (see recommendation 1). | High for real data |
+| 1 | **Databricks processes the pipeline in India.** The workspace's Unity Catalog metastore is `asia-south1` (Mumbai). Since 2026-10-17 (new workspace `8259554454724321.1`), raw files and managed tables are on the workspace's Default Storage, a Databricks-managed bucket in the workspace region, so data at rest is in Mumbai too; before that they were in a Bangkok bucket (`asia-southeast3`). **Decision (2026-10-11): stay in Mumbai while the data is synthetic; revisit before real data** (see recommendation 1). **Decision (owner, 2026-10-18): production uses this workspace**, so Mumbai (`asia-south1`) is recorded as a cross-border transfer (India) for compute and storage. | Medium (decided; PDPA record) |
 | 2 | ~~**Pipeline error messages carry data values.**~~ ✅ Fixed 2026-10-11: silver now reports field names and counts only. Previously: Silver's schema-drift error includes a sample of the rescued row (`{"amount_cents":33800,…}`) and the null-amount error lists event ids. These reach Moonshot, LINE and the dashboard. With real data, that could be personal data. | High for real data |
 | 3 | **Evidence sent to the model provider leaves Thailand and may be used for training.** Sanitized logs, errors, diffs and table names go to Moonshot's international API (`api.moonshot.ai`), operated by Moonshot AI Pte. Ltd. with servers in **Singapore**. Its terms allow using customer content to improve the service, including training, unless agreed otherwise in writing (enterprise arrangement). Data is kept while the account is active. | **High for real data** |
 | 4 | **The sanitizer misses some Thai personal data.** Thai national IDs and phone numbers are masked since 2026-10-11; names, addresses and bank account numbers still aren't. | Medium (was: no Thai identifiers at all) |
@@ -55,6 +55,7 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 | Store | Content | Retention |
 |---|---|---|
 | `demo/.state/feedback/feedback.db` (SQLite) | Incidents (ids, timestamps, full report text, prompt version, resolution), feedback (hashed voter, rating, reason), model token usage. | Report text removed after `REPORT_RETENTION_DAYS` (default 180); timings, votes, resolution and cost stay. `line_events` pruned after 7 days ✅. |
+| Production Airflow volumes `openclaw-line-prod-airflow_db` (Postgres) and `…_logs` (since 2026-10-18) | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG (unpaused): task logs after 30 days ✅. Metadata after 90 days: crontab `make prod-airflow-db-clean` daily at 03:25 Bangkok ✅. |
 | Airflow volume `openclaw-line-demo_airflow-home` | Metadata DB, task logs (may contain data values printed by tasks). | `housekeeping` DAG, daily 03:00 Bangkok: task logs after 30 days ✅. Metadata after 90 days: server crontab runs `make airflow-db-clean` daily at 03:15 Bangkok (installed 2026-10-11; output in `demo/.state/airflow-db-clean.log`) ✅. It isn't in the DAG because Airflow 3 tasks can't reach the metadata DB. |
 | `demo/.env` | All secrets (Moonshot key, LINE token, Databricks OAuth secrets, GitHub token, Airflow passwords, Cloudflare tunnel token). | Mode 600 ✅; old backups deleted 2026-10-11 ✅. |
 | `demo/.state/feedback/backups/` | Daily copies of `feedback.db` (same content). | Newest 14 daily files (`FEEDBACK_BACKUP_KEEP`) ✅; older report text disappears from the backups within 14 days of its removal from the live database. |
@@ -64,13 +65,15 @@ Today the pipeline only handles **synthetic** Stripe-style events (`databricks/s
 
 | Credential | Held by | Can do |
 |---|---|---|
-| Moonshot API key | Gateway | Call the model API (billing). |
+| Moonshot API key | Gateway (unused since 2026-10-18) | Call the model API (billing). |
 | Gemini API key | Gateway | Call the backup model (billing). |
 | Healthchecks.io ping URLs | Worker | Mark the two checks up or down (anyone with a URL can). |
 | LINE channel token and secret | Gateway and worker | Push/reply messages; read quota. |
 | Airflow `investigator` (viewer) | Worker, gateway | Read DAGs, runs and logs; **can't** start runs (verified 403). |
 | Airflow `dashboard` (user) | Worker only | Start DAG runs (Run pipeline button). |
 | Airflow `admin` | You | Everything (UI login). |
+| Production Airflow `admin` / `investigator` (since 2026-10-18) | You / worker and gateway | Admin: everything. Investigator (viewer): read only; creating a run or unpausing a DAG returns 403 (verified). No `dashboard` account in production. |
+| Vertex AI service account `openclaw-vertex` | Gateway | `roles/aiplatform.user`: call Gemini models. |
 | Databricks `sp-airflow-runner` | Airflow only | `CAN_MANAGE_RUN` on one job. |
 | Databricks `sp-openclaw-reader` | Gateway and worker | `CAN_VIEW` on the job, `CAN_READ` on its notebooks, `BROWSE` on catalog `lakehouse`. |
 | GitHub fine-grained token | Gateway | Read one repository. |
@@ -95,6 +98,7 @@ In order. Items 1–4 should happen before real production data is connected.
    - **Decision 2026-10-11: keep Mumbai while the data is synthetic.** Migrating means a new workspace, catalog, credentials, service principals and secrets, which isn't worth it yet.
    - **Before real data:** either record Mumbai as a cross-border transfer in the PDPA assessment, or recreate the workspace in `asia-southeast1` (Singapore). Singapore is closer to Bangkok, to the Cloudflare edges and to Moonshot's servers, with less cross-region traffic; the bundle redeploys with a new host.
    - The new workspace (2026-10-17) keeps data at rest on Default Storage in Mumbai. To keep it in Bangkok, give catalog `lakehouse` a managed location on a Bangkok bucket instead.
+   - **Decision 2026-10-18 (owner): production runs on this workspace.** Record Mumbai (`asia-south1`) as a cross-border transfer for compute and storage in the PDPA assessment.
    - **Decision 2026-10-17: keep Mumbai for compute and storage while the data is synthetic.** Recommended before real data: record Mumbai (`asia-south1`) as a cross-border transfer; moving storage alone doesn't help much because compute stays in Mumbai.
 2. ✅ **Keep data values out of pipeline errors.** Done for the lakehouse job (`databricks/src/quality.py`: "Unexpected fields: amount_cents", counts only). Apply the same rule to any production task code: exceptions travel to the model, LINE and the dashboard.
 3. ✅ **Extend the sanitizer for Thai personal data:** national ID and phone numbers are done. Add bank account formats you use when real data arrives.
