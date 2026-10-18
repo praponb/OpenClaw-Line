@@ -126,4 +126,6 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - 15:44: investigator switched (owner's go-ahead): `AIRFLOW_BASE_URL=http://airflow-prod:8080` in `demo/.env`, `AIRFLOW_TRIGGER_PASSWORD` commented out (Run pipeline button off); worker and gateway recreated.
 - 15:46–15:48: first production incident: manual `daily_revenue_pipeline` run (DAG unpaused for the run, paused again) → INC-CRX5DT, root `extract_stripe_transactions`, 1 descendant, 3 upstream_failed; report and feedback card delivered to LINE.
 - Found: each failed task notified twice (4 events for 2 tasks; the worker still opened one investigation). Airflow's plugin manager imports `openclaw_callback.py` a second time as a new module, so the policy's identity check missed the DAG's own `notify_openclaw`. The policy now matches it by module and name (test added). Takes effect when this PR is merged and `~/prod-dags` pulls it.
+- 15:53: #33 and #34 merged; `~/prod-dags` pulled `0465f23`; scheduler and DAG processor restarted (the policy is loaded once per process). `housekeeping` has no callback (tag `no-openclaw`) and is unpaused.
+- 15:54–15:56: second production run of `daily_revenue_pipeline` → INC-NQMB6K: **2 callbacks for 2 failed tasks** (was 4), one investigation, report and feedback card in LINE.
 
