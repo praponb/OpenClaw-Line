@@ -36,6 +36,8 @@ export type Worker = {
   publicServer?: Server;
   /** Public dashboard listener behind Cloudflare Access (present when CF_ACCESS_* is configured). */
   dashboardServer?: Server;
+  /** Airflow callbacks only, for an Airflow on another host (present when INGEST_PORT is set). */
+  ingestServer?: Server;
   aggregator: FailureAggregator;
   investigate: (key: string, events: FailureEvent[]) => Promise<void>;
   store?: FeedbackStore;
@@ -272,28 +274,48 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
       if (req.url === "/v1/openclaw/report") return await handleReport(req, send);
       if (req.url === "/v1/openclaw/usage") return await handleUsage(req, send);
       if (req.url !== "/v1/airflow/failure") return send(404, { error: "not found" });
-      if (req.method !== "POST") return send(405, { error: "method not allowed" });
-
-      const raw = await readBody(req, MAX_BODY_BYTES);
-      if (raw === undefined) return send(413, { error: "payload too large" });
-      const body = raw.toString("utf8");
-      if (!verifySignature(cfg.webhookSecret, body, header(req, TIMESTAMP_HEADER), header(req, SIGNATURE_HEADER))) {
-        return send(401, { error: "invalid signature" });
-      }
-      let event: FailureEvent;
-      try {
-        event = { ...parseEvent(JSON.parse(body)), receivedAt: now() };
-      } catch (err) {
-        return send(400, { error: (err as Error).message });
-      }
-      const outcome = aggregator.add(event);
-      log.info(`[worker] ${FailureAggregator.key(event)} task=${event.task_id}: ${outcome}`);
-      return send(202, { accepted: true, outcome });
+      return await handleFailure(req, send);
     } catch (err) {
       log.error(`[worker] request failed: ${sanitize(String(err))}`);
       return send(500, { error: "internal error" });
     }
   });
+
+  async function handleFailure(req: IncomingMessage, send: ReturnType<typeof jsonSender>): Promise<void> {
+    if (req.method !== "POST") return send(405, { error: "method not allowed" });
+    const raw = await readBody(req, MAX_BODY_BYTES);
+    if (raw === undefined) return send(413, { error: "payload too large" });
+    const body = raw.toString("utf8");
+    if (!verifySignature(cfg.webhookSecret, body, header(req, TIMESTAMP_HEADER), header(req, SIGNATURE_HEADER))) {
+      return send(401, { error: "invalid signature" });
+    }
+    let event: FailureEvent;
+    try {
+      event = { ...parseEvent(JSON.parse(body)), receivedAt: now() };
+    } catch (err) {
+      return send(400, { error: (err as Error).message });
+    }
+    const outcome = aggregator.add(event);
+    log.info(`[worker] ${FailureAggregator.key(event)} task=${event.task_id}: ${outcome}`);
+    return send(202, { accepted: true, outcome });
+  }
+
+  // Airflow callbacks from another host (production Airflow on the LAN): the
+  // failure route only. The internal listener also serves the dashboard API and
+  // report capture, so it stays on loopback.
+  let ingestServer: Server | undefined;
+  if (cfg.ingestPort !== undefined) {
+    ingestServer = createServer(async (req, res) => {
+      const send = jsonSender(res);
+      try {
+        if (req.url !== "/v1/airflow/failure") return send(404, { error: "not found" });
+        return await handleFailure(req, send);
+      } catch (err) {
+        log.error(`[worker] ingest request failed: ${sanitize(String(err))}`);
+        return send(500, { error: "internal error" });
+      }
+    });
+  }
 
   /** Data for the live dashboard. Internal listener only: it includes report text. */
   function handleDashboardApi(req: IncomingMessage, send: ReturnType<typeof jsonSender>): void {
@@ -417,7 +439,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
 
   const resolutionWatcher = store && airflow ? new ResolutionWatcher(store, airflow, { now, log }) : undefined;
 
-  return { server, publicServer, dashboardServer, aggregator, investigate, store, resolutionWatcher, alerts, backup, healthProblems };
+  return { server, publicServer, dashboardServer, ingestServer, aggregator, investigate, store, resolutionWatcher, alerts, backup, healthProblems };
 }
 
 function retryKey(seed: string): string {

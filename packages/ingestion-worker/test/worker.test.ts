@@ -113,6 +113,31 @@ describe("ingestion worker end to end", () => {
     expect((await post(port, { dag_id: "d" })).status).toBe(400);
     expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
   });
+
+  it("serves only the failure route on the ingest listener", async () => {
+    const dispatcher: Dispatcher = { dispatch: vi.fn() };
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const { ingestServer, aggregator } = createWorker(loadConfig({ ...baseEnv, INGEST_PORT: "8094" }), dispatcher, { log });
+    expect(ingestServer).toBeDefined();
+    await new Promise<void>((r) => ingestServer!.listen(0, "127.0.0.1", r));
+    close = () => ingestServer!.close();
+    const port = (ingestServer!.address() as AddressInfo).port;
+
+    const ok = await post(port, { dag_id: "d", task_id: "t", run_id: "r", try_number: 1 });
+    expect(ok.status).toBe(202);
+    expect(aggregator.pendingCount).toBe(1);
+    expect((await post(port, { dag_id: "d", task_id: "t", run_id: "r" }, "wrong")).status).toBe(401);
+    for (const path of ["/healthz", "/api/dashboard", "/api/costs", "/v1/openclaw/report", "/v1/openclaw/usage", "/"]) {
+      expect((await fetch(`http://127.0.0.1:${port}${path}`)).status, path).toBe(404);
+    }
+    expect((await fetch(`http://127.0.0.1:${port}/v1/openclaw/report`, { method: "POST", body: "{}" })).status).toBe(404);
+    aggregator.stop();
+  });
+
+  it("has no ingest listener unless INGEST_PORT is set", () => {
+    const { ingestServer } = createWorker(loadConfig(baseEnv), { dispatch: vi.fn() }, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+    expect(ingestServer).toBeUndefined();
+  });
 });
 
 describe("verifySignature", () => {

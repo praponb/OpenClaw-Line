@@ -35,6 +35,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Group | Variables |
 |---|---|
 | Model | `MOONSHOT_API_KEY`, `MOONSHOT_BASE_URL` (international), `OPENCLAW_MODEL=moonshot/kimi-k3`, `MODEL_PRICE_INPUT_PER_MTOK=3.00`, `MODEL_PRICE_OUTPUT_PER_MTOK=15.00`, `MODEL_PRICE_CACHE_READ_PER_MTOK=0.30` (official Kimi K3 prices) |
+| Model on Vertex AI (trial since 2026-10-18) | `OPENCLAW_MODEL=google-vertex/gemini-3.7-flash`, `OPENCLAW_FALLBACK_MODEL=google-vertex/gemini-3.6-flash`, `GOOGLE_APPLICATION_CREDENTIALS=/run/vertex/openclaw-vertex.json` (key in `demo/.state/vertex/`, mode 600), `GOOGLE_CLOUD_PROJECT=gen-lang-client-0143309127`, `GOOGLE_CLOUD_LOCATION` (see Pitfalls: Gemini 3.x is not in `asia-southeast1`); prices 0.75 / 3.75 / 0.075. The previous Kimi and AI Studio lines are in `demo/.env.bak-vertex`. |
 | Backup model | `GEMINI_API_KEY` (Google AI Studio, billing on); `OPENCLAW_FALLBACK_MODEL` defaults to `google/gemini-3.8-flash`; `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=0.75`, `FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK=3.75`, `FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK=0.075` (paid tier through 2026-12-31; **double from 2027-01-01**: 1.50 / 7.50 / 0.15) |
 | Alerts | `HEALTHCHECK_URL` (heartbeat check), `HEALTHCHECK_LINE_URL` (LINE check); Healthchecks.io ping URLs |
 | LINE | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, `LINE_TARGET_ID` (a personal chat, `U…`) |
@@ -48,6 +49,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 
 | Identity | Can do |
 |---|---|
+| GCP service account `openclaw-vertex` (project `gen-lang-client-0143309127`) | `roles/aiplatform.user` only: calls Vertex AI models. JSON key on the server only. |
 | Databricks `sp-airflow-runner` (`5373a47d…`) | `CAN_MANAGE_RUN` on the job. Granted in the bundle, not the UI. |
 | Databricks `sp-openclaw-reader` (`d70ea6d2…`) | `CAN_VIEW` on the job plus `CAN_READ` on the bundle files (top-level bundle `permissions`), and `BROWSE` on catalog `lakehouse` (granted by CLI; it's the only grant on the catalog besides the owner, since the UI's default `BROWSE` for `account users` was removed on 2026-10-17). Data and volume reads return 403. Entitlements: the reader has `workspace-access` (needed for `jobs/runs/get-output` and the workspace API; `workspace-consume` returns 403 "does not have access to Databricks Workspace" there), the runner only `workspace-consume`. Without any entitlement every API call returns 403. |
 | Airflow `investigator` (viewer) | Reads logs and runs; a run-create attempt returns 403. |
@@ -108,6 +110,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Creating catalog `lakehouse` failed: "Metastore storage root URL does not exist" | The account uses Default Storage; the API and CLI can't create a catalog on it. | Create the catalog in the UI (Use default storage), then remove the `BROWSE` it grants to `account users`. |
 | Every service principal API call returned 403 "This API is disabled for users without …" | The new workspace's `users` group grants no entitlements. | Give the SP an entitlement. |
 | Investigator got 403 "does not have access to Databricks Workspace" for a failed run | `workspace-consume` covers job and run reads but not `jobs/runs/get-output` or the workspace API. | Reader gets `workspace-access`. Test SPs with the exact calls the tools make. |
+| Every investigation fails with "This model was not found" on Vertex; the worker sends only its fallback notice | Gemini 3.x Flash is not served in `asia-southeast1` (404 "Publisher model … was not found or your project does not have access to it"); it answers only on `global`, `us` and `eu` (checked 2026-10-18). | `GOOGLE_CLOUD_LOCATION=eu` (or `us`/`global`), then recreate the gateway. Probe a model first: `curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" https://aiplatform.eu.rep.googleapis.com/v1/projects/<project>/locations/eu/publishers/google/models/<model>:generateContent -d '{"contents":[{"role":"user","parts":[{"text":"ok"}]}]}'`. In zsh write `${m}:generateContent`: `$m:g…` is read as a modifier. |
 | Doctor at gateway start: "Unknown model: moonshot/kimi-k3" (2026.10.2) | Doctor's tool-schema check runs before the Moonshot catalog has loaded. | Harmless: `openclaw models list --provider moonshot` lists `kimi-k3` once started, and runs use it. |
 | Doctor at gateway start: "Remember across conversations is effectively enabled" (2026.10.2) | Unset `memory.search.rememberAcrossConversations` counts as on. | Set to `false` in `openclaw.json5`: each incident stands on its own evidence. |
 | `insufficient_evidence` live test "failed" although the report was right | The test DAG's diff (docstring, `kill -9 $$`) and the `eval__…` run id told the investigator the failure was intentional. | Neutral test DAG `finance_nightly_jobs`, the failing client installed outside the repository, `manual__` run ids; add and delete files in separate commits (a rename's patch shows the old code). |
@@ -120,11 +123,23 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | 2027-01-01 | Gemini 3.8 Flash prices double. Set `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=1.50`, `…_OUTPUT_PER_MTOK=7.50`, `…_CACHE_READ_PER_MTOK=0.15` in the server's `demo/.env` and restart the worker. |
 | 2028-10-16 | Databricks service principal OAuth secrets expire (created 2026-10-17 for workspace `8259554454724321.1`). |
 
+## Production Airflow (phases 3–5, waiting for details)
+
+The stack can watch an Airflow 3 on another LAN host (2026-10-18). Needed from the owner: that Airflow's URL, exact version and auth manager, an admin login to create the viewer, the DAG git repository location, and the production Databricks host and region.
+
+1. **Investigator target:** in the server's `demo/.env`, set `AIRFLOW_BASE_URL=http://<prod-airflow>:8080`, `AIRFLOW_API_VERSION=v2`, `AIRFLOW_VIEWER_USERNAME`/`AIRFLOW_VIEWER_PASSWORD` (a Viewer-role user), `COMPOSE_PROFILES=` (no demo Airflow container; make targets read it too), and remove `AIRFLOW_TRIGGER_PASSWORD` (Run pipeline button off). Check: the viewer gets a token from `/auth/token`; creating a run returns 403.
+2. **Callbacks:** set `INGEST_BIND_ADDRESS=192.168.1.49` (the worker always listens on 8094 inside the container; `INGEST_HOST_PORT` changes the host port). Firewall, with sudo: `sudo ufw allow from <prod-airflow-ip> to any port 8094 proto tcp`, and no other rule for 8094. In production Airflow: copy `airflow/plugins/openclaw_callback.py` to its plugins folder and `airflow/production/airflow_local_settings.py` to `$AIRFLOW_HOME/config`, set `OPENCLAW_INGEST_URL=http://192.168.1.49:8094/v1/airflow/failure` and `OPENCLAW_WEBHOOK_SECRET=<WEBHOOK_SECRET>` on the scheduler, DAG processor and workers, then restart them. Check from the Airflow host: unsigned POST → 401, `/api/dashboard` → 404; from another host the port is closed.
+3. **Git evidence:** clone the DAG repository read-only on the server, set `GIT_REPO_DIR=<clone>` and `GIT_PROVIDER=local`, and add a crontab line `*/10 * * * * cd <clone> && git pull -q --ff-only`.
+4. **Demo Airflow:** stop it and remove the crontab `make airflow-db-clean` line. For `make eval-live` before an upgrade, start a temporary `COMPOSE_PROFILES=demo` stack pointed at the demo Airflow.
+5. **Databricks:** a production reader SP (`CAN_VIEW` on the jobs, `BROWSE` on the catalogs, `workspace-access`), then `DATABRICKS_HOST`/`DATABRICKS_READER_CLIENT_*`.
+
+Rollback: unset `OPENCLAW_INGEST_URL` in production Airflow (the callback logs "disabled" and never fails a task); set `AIRFLOW_BASE_URL` back and `COMPOSE_PROFILES=demo`.
+
 ## Before connecting real production data
 
 See [data-residency.md](data-residency.md):
 - Gemini API and Healthchecks.io terms checked 2026-10-17 (see data-residency.md): list Google as a processor with no fixed region. The Gemini key's project must keep billing on (free tier allows training).
-- A written no-training agreement from Moonshot, or switch the model provider.
+- A written no-training agreement from Moonshot, or switch the model provider. Vertex AI (no-training terms) is set up; choose its location (data-residency.md finding 7).
 - Record the Databricks region (compute and storage in Mumbai since 2026-10-17) as a cross-border transfer, or move it (Singapore workspace, or a Bangkok bucket as the catalog's managed location).
 - Send reports to a LINE group and add teammates to Access when others join.
 
