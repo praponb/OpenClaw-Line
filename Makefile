@@ -36,7 +36,7 @@ seed:
 	python3 demo/seed_repo.py $(STATE)/repo
 
 demo-env:
-	@test -f demo/.env || (cp demo/.env.example demo/.env && echo "Created demo/.env - fill in MOONSHOT_API_KEY (and LINE_* for delivery), then re-run." && exit 1)
+	@test -f demo/.env || (cp demo/.env.example demo/.env && echo "Created demo/.env - fill in GOOGLE_CLOUD_PROJECT, the Vertex key in demo/.state/vertex/ (and LINE_* for delivery), then re-run." && exit 1)
 
 # Airflow simple-auth-manager passwords: admin, read-only investigator (viewer) and,
 # when AIRFLOW_TRIGGER_PASSWORD is set, the dashboard's "Run pipeline" account (user).

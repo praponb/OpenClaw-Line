@@ -1,5 +1,5 @@
 # Tests, typecheck and plugin manifest check on every PR and push to main.
-# Needs no secrets: Databricks, LINE, Moonshot and GitHub are mocked in the tests.
+# Needs no secrets: Databricks, LINE, the model provider and GitHub are mocked in the tests.
 name: CI
 
 on:

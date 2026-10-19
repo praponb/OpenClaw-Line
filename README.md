@@ -1,6 +1,6 @@
 # OpenClaw Pipeline Incident Investigator (LINE)
 
-A read-only incident triage agent for data pipelines, built on [OpenClaw](https://docs.openclaw.ai) and powered by **Moonshot Kimi K3** (`moonshot/kimi-k3`). When an Airflow task fails, the investigator does two things:
+A read-only incident triage agent for data pipelines, built on [OpenClaw](https://docs.openclaw.ai) and powered by **Gemini 3.7 Flash on Vertex AI** (`google-vertex/gemini-3.7-flash`, EU multi-region). When an Airflow task fails, the investigator does two things:
 
 - **Gathers evidence:** task logs, Databricks run errors, recent git diffs and dbt lineage.
 - **Posts a report to LINE:** facts are kept separate from hypotheses, the blast radius is listed, and there are at most 3 next steps.
@@ -66,7 +66,7 @@ CI (`.github/workflows/ci.yml`) runs the same checks on every PR and push to `ma
 ## Demo (docker compose)
 
 ```bash
-make demo-env    # creates demo/.env – fill in MOONSHOT_API_KEY (+ LINE_* for delivery)
+make demo-env    # creates demo/.env – fill in GOOGLE_CLOUD_PROJECT + the Vertex key (+ LINE_* for delivery)
 make demo-dry    # full stack; prints the triage report in the terminal (no LINE needed)
 make demo-up && make demo-trigger   # real run: report is pushed to LINE_TARGET_ID
 make demo-tunnel   # Phase 3: Cloudflare tunnel + LINE webhook for the feedback buttons
@@ -83,15 +83,13 @@ What happens in the demo:
 3. The seeded repo's last commit, "Bypass empty payloads…", changed `.get("payment_intent_id")` to `payload["payment_intent_id"]`.
 4. The lineage lookup should list `fct_daily_revenue` (SLA 06:00) and `finance_reconciliation`, plus the "Executive Daily KPI (Looker)" and "Daily Net Inflow Alert" exposures.
 
-### Model: Moonshot Kimi K3
-- The model is `moonshot/kimi-k3`. It is served by OpenClaw's official `@openclaw/moonshot-provider` plugin, which is installed into the gateway image at build time together with `@openclaw/line`.
-- Set `MOONSHOT_API_KEY` to a key from the Moonshot Open Platform. Kimi Coding keys are a separate provider and won't work.
-- Set `MOONSHOT_BASE_URL` to `https://api.moonshot.ai/v1` (international) or `https://api.moonshot.cn/v1` (China).
-- On the direct Moonshot route, K3 always reasons at `max` effort. Investigations are therefore slower and cost more per run, so the hook timeout defaults to 300 s (`OPENCLAW_TIMEOUT_S`).
-- To switch models, change `OPENCLAW_MODEL` (for example `moonshot/kimi-k2.7-code`). Any other provider also needs its plugin and a `models.providers` entry.
-- The Moonshot plugin also registers a Kimi `web_search` tool. The investigator's tool policy still denies `group:web`.
-- Incident evidence goes to Moonshot's API after sanitization. Check that this fits your data-handling and residency rules, especially for the China endpoint.
-- **Backup model:** when Kimi K3 fails (outage, rate limit, auth error) after OpenClaw's own retries, the run continues on `OPENCLAW_FALLBACK_MODEL` (default `google/gemini-3.8-flash`; listed under the investigator's `model.fallbacks`). Google Gemini is a bundled OpenClaw provider; set `GEMINI_API_KEY` (a Google AI Studio key from a project with billing on, so content isn't used for training). The fallback applies to that run only; the next incident starts on Kimi K3 again. The dashboard shows which model(s) answered each incident, and prices fallback calls with `FALLBACK_MODEL_PRICE_*`.
+### Model: Gemini on Vertex AI
+- The model is `google-vertex/gemini-3.7-flash`, served by OpenClaw's bundled `google-vertex` provider (no extra plugin). Google Cloud's Service Terms: evidence is not used to train or fine-tune models.
+- Credentials: a service account with only `roles/aiplatform.user`. Its JSON key goes in `demo/.state/vertex/` (mode 600, mounted read-only at `/run/vertex`); set `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`.
+- Location: Gemini 3.x Flash is served on `global`, `us` and `eu` only (not `asia-southeast1`). The default `eu` is the EU multi-region, where Google commits to in-region ML processing. See [docs/data-residency.md](docs/data-residency.md).
+- **Backup model:** when the primary fails (outage, rate limit) after OpenClaw's own retries, the run continues on `OPENCLAW_FALLBACK_MODEL` (default `google-vertex/gemini-3.6-flash`; listed under the investigator's `model.fallbacks`). Same provider and credentials, so a credential problem fails both and the worker sends its fallback notice. The fallback applies to that run only. The dashboard shows which model(s) answered each incident, and prices fallback calls with `FALLBACK_MODEL_PRICE_*`.
+- To switch models, change `OPENCLAW_MODEL`. Another provider needs its plugin, a `models.providers` entry if it isn't bundled, and a check of its data terms before real data.
+- Prices (`MODEL_PRICE_*`, `FALLBACK_MODEL_PRICE_*`): 0.75 / 3.75 / 0.075 USD per million tokens (input / output / cached) through 2026-12-31, doubling from 2027-01-01.
 
 ### Quality
 - **Grounding check:** the `report-capture` plugin keeps the investigator's evidence in memory per session (the incident message from `llm_input`, every tool result from `after_tool_call`). Before the report goes to LINE (`message_sending`), it extracts each commit SHA, file path and dotted table name and looks for it in that evidence (repository-relative paths match the absolute or bundle paths in tracebacks). Anything not found is listed on one line above `Ref:`: "⚠️ Not found in the evidence (verify before acting): …". The list is stored with the incident and shown on the dashboard and in `make feedback-report`. Delivery is never blocked, and nothing is checked when no evidence was captured.
@@ -167,15 +165,15 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 
 Open items:
 - Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
-- Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Gemini API and Healthchecks.io terms were checked on 2026-10-17. Before connecting real data: get a written no-training agreement from Moonshot (or switch model provider), and record the Databricks region as a cross-border transfer (compute and, since 2026-10-17, storage are in Mumbai) or move it.
+- Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Gemini API and Healthchecks.io terms were checked on 2026-10-17. The model runs on Vertex AI in the EU multi-region (no training on the evidence); record that transfer and the Databricks region as a cross-border transfer (compute and, since 2026-10-17, storage are in Mumbai) or move it.
 - Retention: `REPORT_RETENTION_DAYS` (default 180) for incident report text; Airflow DAG `housekeeping` (daily 03:00 Bangkok) deletes task logs after `AIRFLOW_LOG_RETENTION_DAYS` (30); the Databricks job's `housekeeping` task deletes landing folders after `landing_retention_days` (90) and runs `VACUUM` (7 days). Airflow metadata older than `AIRFLOW_METADATA_RETENTION_DAYS` (90) is removed with `make airflow-db-clean`, run daily at 03:15 by the server's crontab (see the Makefile for the line). Airflow 3 tasks can't reach the metadata DB, so it isn't part of the DAG.
 
 ## Production notes
 - Set `GIT_PROVIDER=github` (or `gitlab`) with `GITHUB_REPO`, `GIT_REF` and a read-only `GITHUB_TOKEN` (or `GITLAB_PROJECT`/`GITLAB_TOKEN`) in the environment; the default is the seeded demo repo. `GIT_PATH_PREFIXES` (e.g. `airflow/`) is tried when a path from a traceback is not in the repository, and the tool reports "File not found in the repository" rather than "no commits" when no candidate exists.
 - Mount the production `manifest.json` from your dbt runs. Use `lineage_map.json` to map Airflow task ids to dbt nodes when the names differ.
-- Outside docker, install the provider and channel with `openclaw plugins install @openclaw/moonshot-provider` and `openclaw plugins install @openclaw/line`.
+- Outside docker, install the channel with `openclaw plugins install @openclaw/line` (the Vertex provider is bundled).
 - Install the investigator plugin with `openclaw plugins install <staged dir> --force` (stage it with `node scripts/stage-plugin.mjs <dir>`), as the demo image does. Non-interactive installs also need `--accept-capabilities`.
-- Keep `tools.codeMode: false` and `tools.toolSearch: false`. Code Mode auto-enables for preferred models such as Kimi K3 and replaces the tools with a model-written JavaScript `exec` running in `node:vm`, which is not a security boundary. Tool Search hides the tool schemas behind a generic `tool_call`. After each OpenClaw upgrade, check that a run still calls the tools directly.
+- Keep `tools.codeMode: false` and `tools.toolSearch: false`. Code Mode auto-enables for some preferred models and replaces the tools with a model-written JavaScript `exec` running in `node:vm`, which is not a security boundary. Tool Search hides the tool schemas behind a generic `tool_call`. After each OpenClaw upgrade, check that a run still calls the tools directly.
 - Don't set `tools.profile` on the investigator agent. Profiles are applied before `allow` and none of them include plugin tools, so runs fail with "No callable tools remain…".
 - Keep the Gateway port private. Its token is an operator credential.
 - Publish only the worker's public listener (`PUBLIC_PORT`, `/line/webhook`) through a named Cloudflare tunnel or your ingress. Keep the internal port (Airflow callbacks, report capture) private.

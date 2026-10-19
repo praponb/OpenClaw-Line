@@ -39,7 +39,6 @@
     // investigator: agent runs skip tools from plugins without an install record.
     entries: {
       line: { enabled: true },
-      moonshot: { enabled: true },
       "pipeline-investigator": {
         enabled: true,
         config: {
@@ -71,22 +70,9 @@
     },
   },
 
-  // Model provider: Moonshot Kimi K3 via the @openclaw/moonshot-provider plugin
-  // (installed into the gateway image at build time). The plugin supplies the model
-  // catalog; this block only sets the endpoint and key.
-  // MOONSHOT_BASE_URL: https://api.moonshot.ai/v1 (international) or https://api.moonshot.cn/v1 (China).
-  // The fallback model's provider (Google Gemini) is bundled with OpenClaw and reads
-  // GEMINI_API_KEY from the environment, so it needs no entry here.
-  models: {
-    mode: "merge",
-    providers: {
-      moonshot: {
-        baseUrl: "${MOONSHOT_BASE_URL}",
-        apiKey: "${MOONSHOT_API_KEY}",
-        api: "openai-completions",
-      },
-    },
-  },
+  // Model provider: google-vertex, bundled with OpenClaw. It reads the service-account
+  // key, project and location from GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT
+  // and GOOGLE_CLOUD_LOCATION, so it needs no models.providers entry.
 
   // The investigator only runs when an incident arrives on /hooks/agent.
   // Disable every scheduled job (heartbeat monitor, memory dreaming, skill
@@ -95,8 +81,8 @@
   cron: { enabled: false },
   // Expose the investigator's tools directly, with their schemas.
   // - Code Mode would replace them with a model-written JavaScript `exec`
-  //   (node:vm, "not a security boundary"); it auto-enables for preferred
-  //   models such as Kimi K3.
+  //   (node:vm, "not a security boundary"); it auto-enables for some
+  //   preferred models, so keep it off explicitly.
   // - Tool Search (on by default) hides schemas behind tool_search/tool_call,
   //   which costs extra calls and wrong-argument retries for 4 tools.
   tools: { codeMode: false, toolSearch: false },
@@ -115,10 +101,10 @@
         workspace: "/opt/openclaw/workspace-investigator",
         // Backup model: OpenClaw switches to it for the run when the primary fails
         // (outage, rate limit, auth error) after its own retries. Agent entries are
-        // strict unless they list their own fallbacks. Needs GEMINI_API_KEY.
+        // strict unless they list their own fallbacks. Same Vertex credentials.
         model: {
-          primary: "${OPENCLAW_MODEL}", // moonshot/kimi-k3
-          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google/gemini-3.8-flash
+          primary: "${OPENCLAW_MODEL}", // google-vertex/gemini-3.7-flash
+          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google-vertex/gemini-3.6-flash
         },
         skills: [],
         // Read-only enforcement at the platform level: the investigator only

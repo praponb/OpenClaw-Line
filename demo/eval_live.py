@@ -3,7 +3,7 @@
 report in the worker's feedback log, and score it. Run on the Docker host from the
 repo root: `make eval-live` (all) or `make eval-live SCENARIOS="huge_log cascade"`.
 
-Every scenario is a real investigation: one model run (about $0.06-0.10 on Kimi K3)
+Every scenario is a real investigation: one model run (about $0.03 on Gemini 3.7 Flash)
 and two LINE pushes (report + feedback card).
 
 Scenarios on the `finance_nightly_jobs` DAG (its source and run ids give no hint of

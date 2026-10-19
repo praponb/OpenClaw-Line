@@ -6,20 +6,16 @@ name: openclaw-line-demo
 x-openclaw-env: &openclaw-env
   OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
   OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN}
-  # Model: Moonshot Kimi K3 (international endpoint by default; use https://api.moonshot.cn/v1 for China)
-  OPENCLAW_MODEL: ${OPENCLAW_MODEL:-moonshot/kimi-k3}
-  MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
-  MOONSHOT_BASE_URL: ${MOONSHOT_BASE_URL:-https://api.moonshot.ai/v1}
-  # Backup model when Kimi K3 fails (openclaw/openclaw.json5). Without a key the
-  # fallback attempt fails too and the worker sends its fallback notice.
-  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.8-flash}
-  # Google AI Studio key (OpenClaw also accepts GOOGLE_API_KEY).
-  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-  # Vertex AI (google-vertex/* models): service-account key from demo/.state/vertex
-  # (mounted read-only at /run/vertex), project and region, e.g. asia-southeast1.
+  # Model: Gemini on Vertex AI (Google Cloud terms: no training on the evidence).
+  # Backup model when the primary fails (openclaw/openclaw.json5); same provider and
+  # credentials, so a credential problem fails both and the worker sends its notice.
+  OPENCLAW_MODEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.7-flash}
+  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.6-flash}
+  # Service-account key from demo/.state/vertex (mounted read-only at /run/vertex) and
+  # project. Gemini 3.x Flash is served on global, us and eu only; eu = EU multi-region.
   GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
   GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
-  GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-}
+  GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-eu}
   LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-unset}
   LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-unset}
   # Read-only credentials for the investigator's tools. AIRFLOW_BASE_URL defaults to
@@ -114,7 +110,7 @@ services:
       INCIDENT_DIR: /incidents
       OPENCLAW_GATEWAY_URL: http://openclaw-gateway:18789
       OPENCLAW_HOOK_TOKEN: ${OPENCLAW_HOOK_TOKEN}
-      # Kimi K3 always reasons at max effort on the direct Moonshot route; allow time.
+      # Upper bound for one investigation (model thinking plus up to 6 tool calls).
       OPENCLAW_TIMEOUT_S: ${OPENCLAW_TIMEOUT_S:-300}
       LINE_TARGET_ID: ${LINE_TARGET_ID}
       # Phase 3 feedback: card + fallback pushes, LINE webhook, incident/feedback log.
@@ -128,7 +124,7 @@ services:
       FEEDBACK_SIGNING_KEY: ${FEEDBACK_SIGNING_KEY:-}
       FEEDBACK_USER_SALT: ${FEEDBACK_USER_SALT:-}
       # Label only (stored per incident); not sent to the gateway as a model override.
-      OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-moonshot/kimi-k3}
+      OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.7-flash}
       # Public dashboard (dashboard.<domain> via the named tunnel) behind Cloudflare
       # Access. The listener only starts when all three CF/allow-list values are set.
       DASHBOARD_PORT: "8092"
@@ -149,7 +145,7 @@ services:
       MODEL_PRICE_OUTPUT_PER_MTOK: ${MODEL_PRICE_OUTPUT_PER_MTOK:-}
       MODEL_PRICE_CACHE_READ_PER_MTOK: ${MODEL_PRICE_CACHE_READ_PER_MTOK:-}
       # Calls answered by the fallback model are priced with these.
-      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google/gemini-3.8-flash}
+      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.6-flash}
       FALLBACK_MODEL_PRICE_INPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_INPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK: ${FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK:-}
@@ -177,7 +173,7 @@ services:
         condition: service_started
         required: false
 
-  # LINE + Moonshot plugins are installed into the image at build time.
+  # The LINE plugin is installed into the image at build time (Vertex is bundled).
   # No state volume: every container start is clean (incidents are stateless anyway).
   openclaw-gateway:
     image: openclaw-line/gateway:local
