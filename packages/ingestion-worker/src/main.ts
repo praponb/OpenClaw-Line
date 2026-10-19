@@ -79,7 +79,10 @@ if (alerts.enabled) {
 }
 
 // Running investigations get up to the hook timeout plus 30 s to finish, so their feedback
-// cards are still sent (compose stop_grace_period allows for it). A second signal stops at once.
+// cards are still sent (compose stop_grace_period allows for it). The listeners stay open
+// meanwhile: the gateway forwards each report and its token usage here, and Airflow
+// callbacks don't retry (new ones are saved and investigated after the restart).
+// A second signal stops at once.
 const drainMs = (cfg.openclaw.timeoutSeconds + 30) * 1000;
 let stopping = false;
 const shutdown = async () => {
@@ -89,10 +92,6 @@ const shutdown = async () => {
   clearInterval(resolutionTimer);
   clearInterval(backupTimer);
   clearInterval(heartbeatTimer);
-  server.close();
-  publicServer?.close();
-  dashboardServer?.close();
-  ingestServer?.close();
   if (aggregator.persistent) {
     // Saved in the incident log; the next start resumes them.
     console.info(`[worker] shutting down; ${aggregator.pendingCount} pending incident(s) resume on the next start`);
@@ -104,7 +103,13 @@ const shutdown = async () => {
   if (investigating() > 0) {
     console.info(`[worker] waiting up to ${drainMs / 1000}s for ${investigating()} running investigation(s)`);
     if (!(await idle(drainMs))) console.warn(`[worker] stopping with ${investigating()} investigation(s) still running; their feedback cards won't be sent`);
+    // The report and usage forwards arrive around the time the run completes; let them land.
+    else await new Promise((r) => setTimeout(r, 2_000));
   }
+  server.close();
+  publicServer?.close();
+  dashboardServer?.close();
+  ingestServer?.close();
   store?.close();
   process.exit(0);
 };

@@ -22,8 +22,9 @@ export interface DedupeStore {
  * re-arms the windows that were open when the worker stopped.
  */
 export class FailureAggregator {
-  private readonly pending = new Map<string, { events: FailureEvent[]; timer: ReturnType<typeof setTimeout> }>();
+  private readonly pending = new Map<string, { events: FailureEvent[]; timer?: ReturnType<typeof setTimeout> }>();
   private readonly flushed = new Map<string, number>();
+  private stopped = false;
 
   constructor(
     private readonly opts: {
@@ -94,8 +95,12 @@ export class FailureAggregator {
     await Promise.all([...this.pending.keys()].map((k) => this.flush(k)));
   }
 
-  /** Stop the window timers without flushing (persisted windows resume on the next start). */
+  /**
+   * Stop the window timers without flushing (persisted windows resume on the next start).
+   * Events added afterwards are still saved, but start no investigation in this process.
+   */
   stop(): void {
+    this.stopped = true;
     for (const { timer } of this.pending.values()) clearTimeout(timer);
   }
 
@@ -103,7 +108,8 @@ export class FailureAggregator {
     return this.pending.size;
   }
 
-  private arm(key: string, ms: number): ReturnType<typeof setTimeout> {
+  private arm(key: string, ms: number): ReturnType<typeof setTimeout> | undefined {
+    if (this.stopped) return undefined;
     const timer = setTimeout(() => void this.flush(key), ms);
     timer.unref?.();
     return timer;
