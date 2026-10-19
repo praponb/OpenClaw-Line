@@ -9,7 +9,7 @@ How the deployed system runs, where things live, and the problems already hit an
 | Docker Compose stack (`airflow`, `ingestion-worker`, `openclaw-gateway`, `tunnel`) | Ubuntu server `192.168.1.49`, user `prapon`, `~/OpenClaw-Line`. That directory is an **rsync copy** of the repo, not a git checkout. Server time zone is Asia/Bangkok. |
 | Databricks workspace | `https://8259554454724321.1.gcp.databricks.com` (GCP, Unity Catalog metastore `asia-south1`, Mumbai), since 2026-10-17. The first workspace (`8259562386951628.8`) was deleted. CLI profile on the Mac: `openclaw` (`make lakehouse-deploy LAKEHOUSE_PROFILE=<profile>` for another). |
 | Data | Catalog `lakehouse` on the workspace's Default Storage (Databricks-managed, same region as the workspace), schemas `bronze`, `silver`, `gold`; managed volumes `lakehouse.bronze.landing` (raw files) and `lakehouse.bronze.checkpoints`, both from the bundle. |
-| Public hostnames (Cloudflare tunnel `582a2422-5a02-49de-94b4-a4fe7025c5be`, named "dashboard" in Cloudflare, Free plan) | `openclaw-feedback.praponb.com` → worker `:8091` (LINE webhook only); `dashboard.praponb.com` → worker `:8092` (Access app and worker JWT check); `airflow.praponb.com` → `airflow:8080` (Access app with Protect with Access). Routes live under **Zero Trust → Networks → Tunnels & Mesh → dashboard → Published application routes**, not "Hostname routes". |
+| Public hostnames (Cloudflare tunnel `582a2422-5a02-49de-94b4-a4fe7025c5be`, named "dashboard" in Cloudflare, Free plan) | `openclaw-feedback.praponb.com` → worker `:8091` (LINE webhook only); `dashboard.praponb.com` → worker `:8092` (Access app and worker JWT check); `airflow.praponb.com` → `airflow:8080` (demo Airflow; Access app with Protect with Access); `airflow-prod.praponb.com` → `airflow-prod:8080` (production Airflow, since 2026-10-19; its own Access app, AUD starts `14e1d63d`, Protect with Access on). Routes live under **Networking → Tunnels → dashboard → Routes** (**+ Add route → Published application**), not "Hostname routes". In the route's Access settings, a pasted AUD tag only counts after pressing Enter (it becomes a chip). |
 | Mac | Development only. Its Compose stack is stopped. **Never start the Mac's tunnel while the server's runs**: Cloudflare would split webhook and dashboard traffic. The Mac's own `cloudflared` runs `batch2stream`, a different project. |
 
 ## Deploying a change
@@ -72,7 +72,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |
 | Costs | Dashboard Costs card. About $0.06–0.10 per investigation at Kimi K3 prices; Databricks compute minutes this month; LINE messages against the quota. |
 
-## Scheduled jobs (retention)
+## Scheduled jobs
 
 | When | What |
 |---|---|
@@ -80,6 +80,9 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | 03:15 daily | Server crontab (user `prapon`): `make -s airflow-db-clean` (Airflow metadata older than 90 days); output in `demo/.state/airflow-db-clean.log`. The line sets `PATH=/usr/local/bin:…` because docker lives there. |
 | Every worker day | Report text older than 180 days removed (`REPORT_RETENTION_DAYS`). |
 | Once per Bangkok day (checked hourly and at start) | Worker copies `feedback.db` to `demo/.state/feedback/backups/feedback-YYYY-MM-DD.db`; keeps 14. |
+| 08:00 daily | Server crontab: `make -s daily-summary` pushes a short summary of the last 24 h to LINE (incidents, delivered/failed, triage time, votes, model cost, and the incidents that need a look: not delivered, 👎/⚠️, claims not found in the evidence). One push a day (about 30 of the 300 free monthly pushes). Output in `demo/.state/daily-summary.log`. Preview without sending: `docker compose … exec -T ingestion-worker node dist/report.js --days 1 --summary`. |
+| 03:25 daily | Server crontab: `make -s prod-airflow-db-clean` (production Airflow metadata older than 90 days). |
+| Every 10 min | Server crontab: `git -C ~/prod-dags pull -q --ff-only` (production DAGs from `main`). |
 | Every 5 min | Worker heartbeat to Healthchecks.io (gateway `/readyz` and last backup checked). |
 | After every Databricks run | Job task `housekeeping`: landing folders older than 90 days, `VACUUM` on bronze, silver and gold (about 70 s). |
 
@@ -132,7 +135,7 @@ Decided 2026-10-18: production Airflow runs **on the home server**, as its own C
 | DAGs, plugin, cluster policy | Read-only clone `~/prod-dags` of `https://github.com/praponb/OpenClaw-Line.git` (public, no credentials), `main`; mounted read-only (`airflow/dags`, `airflow/plugins`, `airflow/production` as the config folder). Crontab: `*/10 * * * * git -C $HOME/prod-dags pull -q --ff-only`. Only merged code runs in production. |
 | Callbacks | `airflow_local_settings.py` appends `notify_openclaw` to every task that lacks it (matched by name: the plugin manager imports the plugin twice) (DAGs tagged `no-openclaw`, e.g. `housekeeping`, are skipped). They go to `http://ingestion-worker:8094/v1/airflow/failure`, the failure-only listener, over the demo stack's network `openclaw-line-demo_default`: no new LAN port, no ufw rule. |
 | Accounts | Simple auth manager: `admin` (`PROD_AIRFLOW_ADMIN_PASSWORD`) and `investigator` (Viewer, same `AIRFLOW_VIEWER_PASSWORD` as the demo). No `dashboard` (user) account. |
-| UI | `http://192.168.1.49:8081` (`PROD_AIRFLOW_BIND_ADDRESS`, `PROD_AIRFLOW_HOST_PORT`, `PROD_AIRFLOW_PUBLIC_URL`). New DAGs start paused. |
+| UI | `https://airflow-prod.praponb.com` (Cloudflare Access, only the owner's email; `PROD_AIRFLOW_PUBLIC_URL`), or on the LAN `http://192.168.1.49:8081` (`PROD_AIRFLOW_BIND_ADDRESS`, `PROD_AIRFLOW_HOST_PORT`), whose login redirects to the public URL. New DAGs start paused. |
 | Secrets in `demo/.env` | `PROD_AIRFLOW_ADMIN_PASSWORD`, `PROD_AIRFLOW_DB_PASSWORD`, `PROD_AIRFLOW_JWT_SECRET`, `PROD_AIRFLOW_FERNET_KEY`; Databricks runner as for the demo. |
 | Retention | Task logs: `housekeeping` DAG (unpause it). Metadata: crontab `25 3 * * *` `make -s prod-airflow-db-clean`. |
 

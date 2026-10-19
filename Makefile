@@ -7,7 +7,7 @@ COMPOSE_PROFILES ?= $(shell grep -q '^COMPOSE_PROFILES=' demo/.env 2>/dev/null &
 export COMPOSE_PROFILES
 STATE := demo/.state
 
-.PHONY: airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report eval-live demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
+.PHONY: daily-summary airflow-db-clean install build typecheck test test-py validate-plugin stage-plugin seed demo-env demo-prepare demo-up demo-dry demo-trigger demo-logs demo-down demo-tunnel feedback-report eval-live demo-dashboard build-docker demo-prepare-docker state demo-clean lakehouse-validate lakehouse-deploy lakehouse-run
 
 install:
 	npm install
@@ -97,6 +97,11 @@ demo-dashboard:
 # Feedback review for prompt tuning: make feedback-report [DAYS=30]
 feedback-report:
 	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),30)
+
+# Short summary of the last DAYS (default 1) to LINE: make daily-summary [DAYS=1]. Server crontab:
+#   0 8 * * * PATH=/usr/local/bin:/usr/bin:/bin; cd $HOME/OpenClaw-Line && make -s daily-summary > demo/.state/daily-summary.log 2>&1
+daily-summary:
+	$(COMPOSE) exec -T ingestion-worker node dist/report.js --days $(or $(DAYS),1) --summary --line
 
 # Live investigator tests (test DAGs finance_nightly_jobs / investigator_cascade):
 # each scenario is a real investigation (model cost + 2 LINE pushes). Run on the Docker host.

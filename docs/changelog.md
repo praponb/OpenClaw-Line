@@ -141,3 +141,14 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - `make eval-live` works again with the investigator on production Airflow: `demo/with_demo_airflow.sh` points the worker and gateway at the demo Airflow for the run and restores them from `demo/.env` (also on failure or Ctrl-C), waiting for `"investigating": 0` before each restart. Tested 16:14–16:17 Bangkok: `make eval-live SCENARIOS="prompt_injection"` → INC-KJC1H3 8/8, then worker and gateway back on `http://airflow-prod:8080`.
 - operations.md "Dates to remember": on 2027-01-01 both Vertex models' prices double, so `MODEL_PRICE_*` changes too, not only `FALLBACK_MODEL_PRICE_*`.
 
+## 2026-10-19: production Airflow UI through Cloudflare
+
+- Route `airflow-prod.praponb.com` → `http://airflow-prod:8080` on tunnel `dashboard` (added by the owner 2026-10-18 16:56 Bangkok). It was reachable **without Access** until the owner created its Access application (AUD `14e1d63d…`, only the owner's email) on 2026-10-19; Airflow's own login guarded the data meanwhile (API 401). Now `/` redirects (302) to the Access login.
+- `PROD_AIRFLOW_PUBLIC_URL=https://airflow-prod.praponb.com` (logins and log links); production api-server, scheduler, DAG processor and triggerer recreated. The investigator still reads `http://airflow-prod:8080` inside Docker (viewer token 201).
+- 09:08: tunnel-side JWT check on for the route too (Protect with Access, AUD `14e1d63d…`, team `praponb`; tunnel log "Updated to new configuration"), as for the demo route. A forged `CF_Authorization` cookie still gets the 302 to the Access login.
+
+## 2026-10-19: daily summary to LINE
+
+- `report.js --summary [--line]` and `make daily-summary [DAYS=1]`: short summary of the last 24 h (incidents, delivered/failed, triage median and p90, votes, model cost) and the incidents that need a look (not delivered, 👎/⚠️, claims not found in the evidence). 2 tests.
+- Server: worker redeployed; first summary sent to LINE; crontab `0 8 * * *` (Bangkok) installed.
+
