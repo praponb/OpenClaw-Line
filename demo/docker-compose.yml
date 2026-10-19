@@ -95,6 +95,9 @@ services:
 
   ingestion-worker:
     restart: unless-stopped
+    # On stop the worker waits for running investigations (OPENCLAW_TIMEOUT_S + 30 s) so
+    # their feedback cards are still sent; Docker's default would kill it after 10 s.
+    stop_grace_period: 330s
     build:
       context: ..
       dockerfile: demo/worker.Dockerfile

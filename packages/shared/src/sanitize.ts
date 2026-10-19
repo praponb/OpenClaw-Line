@@ -57,6 +57,29 @@ const RULES: Rule[] = [
     replace: (_m, prefix: string, quote: string) => `${prefix}${quote}${marker("secret")}${quote}`,
   },
   {
+    // Unlabelled keys in no known format: 32+ characters with upper case, lower case and
+    // digits, and random-looking (Shannon entropy >= 4.4 bits per character). Long
+    // identifiers such as `fct_daily_revenue_v2_Backfill2026Q4` score about 4.2; commit
+    // SHAs, UUIDs and container ids have no upper case and are kept for the evidence.
+    kind: "high_entropy",
+    pattern: /(?<![\w+/=-])[A-Za-z0-9_+/=-]{32,}(?![\w+/=-])/g,
+    replace: (m) => (/[A-Z]/.test(m) && /[a-z]/.test(m) && /\d/.test(m) && entropy(m) >= 4.4 ? marker("high_entropy") : m),
+  },
+  {
+    // Thai bank account numbers: the dashed form (xxx-x-xxxxx-x) anywhere; 10-12 bare
+    // digits only right after "account"/"acct"/"a/c"/"บัญชี", so timestamps and ids stay.
+    // Runs before the phone rule (a 10-digit account can start with 08).
+    kind: "thai_bank_account",
+    pattern: /(?<![\d-])\d{3}-\d-\d{5}-\d(?![\d-])|((?:account|acct|a\/c|บัญชี)[\w ]{0,12}?[:=#]?\s*)(\d{10,12})(?!\d)/gi,
+    replace: (m, prefix: string) => (prefix ? `${prefix}${marker("thai_bank_account")}` : marker("thai_bank_account")),
+  },
+  {
+    // Thai honorific plus name (and a surname after a space): นาย, นาง, นางสาว, น.ส., ด.ช., ด.ญ.
+    // Thai has no spaces between words, so a following word is masked too (privacy wins).
+    kind: "thai_name",
+    pattern: /(?:นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s?[\u0E00-\u0E7F]+(?: [\u0E00-\u0E7F]+)?/g,
+  },
+  {
     kind: "email",
     pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
@@ -86,6 +109,15 @@ const RULES: Rule[] = [
     },
   },
 ];
+
+/** Shannon entropy in bits per character. */
+function entropy(s: string): number {
+  const counts = new Map<string, number>();
+  for (const c of s) counts.set(c, (counts.get(c) ?? 0) + 1);
+  let h = 0;
+  for (const n of counts.values()) h -= (n / s.length) * Math.log2(n / s.length);
+  return h;
+}
 
 /** Visa, Mastercard, Amex, Discover, JCB and UnionPay prefixes with their lengths. */
 function cardBrandLike(d: string): boolean {

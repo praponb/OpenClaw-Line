@@ -164,3 +164,10 @@ An outside review (Gemini) took Moonshot Kimi K3 for the primary model: the repo
 - Compose defaults: `google-vertex/gemini-3.7-flash`, backup `google-vertex/gemini-3.6-flash`, `GOOGLE_CLOUD_LOCATION=eu`. `MOONSHOT_*` and `GEMINI_API_KEY` removed from compose and `.env.example`.
 - Gateway image no longer installs `@openclaw/moonshot-provider` (also drops its Kimi `web_search` tool); `openclaw.json5` has no Moonshot plugin entry or provider block.
 - README model section, operations.md (model row, costs ~$0.03 per investigation), data-residency.md (findings 3 and 7, credentials) updated.
+
+## 2026-10-19: guardrails from the review (sanitizer, CI checks, graceful stop)
+
+- Sanitizer: `high_entropy` (unlabelled keys: 32+ characters, upper/lower/digits, entropy ≥ 4.4 bits per character; SHAs, UUIDs and long identifiers are kept), `thai_bank_account` (dashed form anywhere, 10–12 digits after "account"/"บัญชี"), `thai_name` (Thai honorific plus name). 15 new tests.
+- `deployConfig.test.ts` in `npm test` (so in CI): Code Mode and Tool Search off, investigator `allow` = the plugin manifest's tools with no `profile`, deny groups present, no Moonshot provider, and every published port in both compose files on loopback (or `${*_BIND_ADDRESS:-127.0.0.1}`). Checked that it fails when `codeMode` is flipped or a port binds to `0.0.0.0`. `json5` and `yaml` are explicit devDependencies.
+- Worker stop waits for running investigations (up to `OPENCLAW_TIMEOUT_S` + 30 s; compose `stop_grace_period: 330s`), so a deploy during an investigation no longer loses its feedback card.
+- Not changed, by the owner's choice: the grounding check keeps warning instead of blocking or re-running (1 warning in 40 production reports, a false alarm since fixed); SQLite stays (one worker replica by design); no Airflow 2 live test (production is Airflow 3).

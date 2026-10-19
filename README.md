@@ -46,7 +46,7 @@ Docs: [operations runbook](docs/operations.md) (deploy, settings, identities, sc
 | Challenge | Where |
 |---|---|
 | Log explosion | `shared/logFilter.ts` keeps the last 300 lines plus earlier `ERROR`/`CRITICAL`/`Traceback`/`FAILED` lines and full tracebacks, under a hard character cap. It runs in the worker and in the log tool. |
-| Credential/PII leakage | `shared/sanitize.ts` masks JWTs, bearer tokens, connection-string passwords, key=value secrets, cloud and SaaS keys, emails and card numbers. It runs on every exception, log and diff before the model sees it. |
+| Credential/PII leakage | `shared/sanitize.ts` masks JWTs, bearer tokens, connection-string passwords, key=value secrets, cloud and SaaS keys, unlabelled random-looking keys (32+ characters, high entropy), emails, card numbers, and Thai national IDs, phone numbers, bank account numbers and honorific-plus-name. It runs on every exception, log and diff before the model sees it. |
 | Flapping/cascades | `ingestion-worker/dedupe.ts` waits a debounce window per run. It root-causes only the earliest failed task with no failed ancestor; the other failures become blast radius. Each run is handled once (TTL plus an idempotency key), also across worker restarts. |
 | Session bleed | The worker never sends a `sessionKey`, so each run gets a fresh `isolated` session. |
 
@@ -99,6 +99,8 @@ What happens in the demo:
 - **Restarts don't drop or repeat incidents:** with the incident log on, failure callbacks still being grouped and the runs already investigated are kept in `feedback.db` (`dedupe_pending`, `dedupe_flushed`). A restarted worker resumes the open windows (a window that closed while it was down is investigated right away) and still ignores late callbacks for runs it has handled. An investigation already in progress during a restart isn't resumed: OpenClaw still delivers its report, but the feedback card is lost. `GET /healthz` shows `pending` and `investigating`.
 - **Alerts (Healthchecks.io):** the worker pings `HEALTHCHECK_URL` every `HEALTHCHECK_INTERVAL_S` (300 s). Missing pings mean the worker, the server or its internet connection is down; a `/fail` ping means the gateway's `/readyz` isn't OK or the last backup failed. `HEALTHCHECK_LINE_URL` gets `/fail` when a LINE push (by the worker, or the gateway's report delivery) fails, and a success ping when one goes through. Healthchecks.io emails on each change. Ping bodies hold refs and error text only.
 - **Backups:** once per Bangkok day the worker writes `feedback-YYYY-MM-DD.db` with SQLite `VACUUM INTO` (a consistent copy while it runs) to `FEEDBACK_BACKUP_DIR` (default `backups/` next to the database, i.e. `demo/.state/feedback/backups`) and keeps the newest `FEEDBACK_BACKUP_KEEP` (14; 0 = off). They live on the same disk, so they cover corruption and mistakes, not disk loss.
+- **Stops wait for running investigations:** on SIGTERM the worker stops taking callbacks, saves the windows still being grouped, and waits up to `OPENCLAW_TIMEOUT_S` + 30 s for investigations in progress, so their feedback cards are still sent (compose `stop_grace_period: 330s`). A second signal stops at once.
+- **One worker replica:** the incident log is a single SQLite file (`feedback.db`). Running several worker replicas would need a shared database (e.g. PostgreSQL) and shared dedupe state.
 
 ### LINE setup
 1. In the LINE Developers Console, create a Messaging API channel. Copy its channel access token and channel secret into `demo/.env`.
@@ -164,7 +166,7 @@ Blast radius for Databricks incidents comes from Unity Catalog lineage: `get_dat
 | Quality | Grounding check on every report; live tests for insufficient evidence, prompt injection, huge logs and a big cascade (`make eval-live`) |
 
 Open items:
-- Real systems: production DAGs and a real Airflow viewer account (Airflow 2 path untested live), a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
+- Real systems: Airflow 3 is what runs in production (3.3.2 on the home server, viewer account verified); the Airflow 2 (`/api/v1`) path is untested live; a production dbt manifest sync, the "data catalog" lineage option. (Git evidence already comes from GitHub with a read-only token, and Databricks lineage from Unity Catalog.)
 - Data residency: see [docs/data-residency.md](docs/data-residency.md). Retention, value-free pipeline errors and Thai PII masking are in place. Gemini API and Healthchecks.io terms were checked on 2026-10-17. The model runs on Vertex AI in the EU multi-region (no training on the evidence); record that transfer and the Databricks region as a cross-border transfer (compute and, since 2026-10-17, storage are in Mumbai) or move it.
 - Retention: `REPORT_RETENTION_DAYS` (default 180) for incident report text; Airflow DAG `housekeeping` (daily 03:00 Bangkok) deletes task logs after `AIRFLOW_LOG_RETENTION_DAYS` (30); the Databricks job's `housekeeping` task deletes landing folders after `landing_retention_days` (90) and runs `VACUUM` (7 days). Airflow metadata older than `AIRFLOW_METADATA_RETENTION_DAYS` (90) is removed with `make airflow-db-clean`, run daily at 03:15 by the server's crontab (see the Makefile for the line). Airflow 3 tasks can't reach the metadata DB, so it isn't part of the DAG.
 

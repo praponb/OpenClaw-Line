@@ -4,7 +4,7 @@ import { createWorker } from "./server.js";
 
 const cfg = loadConfig();
 const dispatcher = cfg.dryRun ? new FileDispatcher(cfg.incidentDir) : new HookDispatcher(cfg.openclaw);
-const { server, publicServer, dashboardServer, ingestServer, aggregator, store, resolutionWatcher, alerts, backup, healthProblems } = createWorker(cfg, dispatcher);
+const { server, publicServer, dashboardServer, ingestServer, aggregator, store, resolutionWatcher, alerts, backup, healthProblems, investigating, idle } = createWorker(cfg, dispatcher);
 
 // Failure windows that were open when the worker last stopped (incident log only).
 const restored = aggregator.restore();
@@ -78,7 +78,13 @@ if (alerts.enabled) {
   console.info("[worker] alerts disabled (set HEALTHCHECK_URL / HEALTHCHECK_LINE_URL)");
 }
 
+// Running investigations get up to the hook timeout plus 30 s to finish, so their feedback
+// cards are still sent (compose stop_grace_period allows for it). A second signal stops at once.
+const drainMs = (cfg.openclaw.timeoutSeconds + 30) * 1000;
+let stopping = false;
 const shutdown = async () => {
+  if (stopping) process.exit(1);
+  stopping = true;
   clearInterval(retentionTimer);
   clearInterval(resolutionTimer);
   clearInterval(backupTimer);
@@ -94,6 +100,10 @@ const shutdown = async () => {
   } else {
     console.info("[worker] shutting down; flushing pending incidents");
     await aggregator.flushAll();
+  }
+  if (investigating() > 0) {
+    console.info(`[worker] waiting up to ${drainMs / 1000}s for ${investigating()} running investigation(s)`);
+    if (!(await idle(drainMs))) console.warn(`[worker] stopping with ${investigating()} investigation(s) still running; their feedback cards won't be sent`);
   }
   store?.close();
   process.exit(0);

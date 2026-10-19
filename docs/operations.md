@@ -23,7 +23,7 @@ ssh prapon@192.168.1.49 'cd OpenClaw-Line && make demo-prepare-docker && \
 make lakehouse-deploy   # Databricks job, from the Mac
 ```
 
-- **Never overwrite the server's `demo/.env`**, and check that no investigation is running first: `curl localhost:8093/healthz` on the server (the worker's port 8080) should show `"investigating": 0`. Incidents still being grouped (`pending`) are saved and resume after the restart; an investigation in progress is not (its report reaches LINE, but the feedback card is lost).
+- **Never overwrite the server's `demo/.env`**, and check that no investigation is running first: `curl localhost:8093/healthz` on the server (the worker's port 8080) should show `"investigating": 0`. Incidents still being grouped (`pending`) are saved and resume after the restart. Since 2026-10-19 a stop also waits up to 5.5 min for an investigation in progress, so its feedback card is still sent (`stop_grace_period: 330s`); a `docker kill` or a crash still loses it.
 - **The worker image copies a pre-built `dist/`,** so the server must run `make demo-prepare-docker` (Node runs in a container) before `--build`.
 - **Before a change to the incident log schema,** make a fresh copy even though daily backups exist: `docker compose --env-file demo/.env -f demo/docker-compose.yml exec ingestion-worker node -e 'new (require("node:sqlite").DatabaseSync)("/data/feedback.db").exec("VACUUM INTO \x27/data/backups/pre-change.db\x27")'`. Delete `pre-change.db` once the deploy works: the daily cleanup only removes `feedback-YYYY-MM-DD.db` files.
 - **New secrets go into the server's `demo/.env`.** The Mac's copy is never synced (rsync excludes it).
