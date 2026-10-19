@@ -141,3 +141,9 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - `make eval-live` works again with the investigator on production Airflow: `demo/with_demo_airflow.sh` points the worker and gateway at the demo Airflow for the run and restores them from `demo/.env` (also on failure or Ctrl-C), waiting for `"investigating": 0` before each restart. Tested 16:14–16:17 Bangkok: `make eval-live SCENARIOS="prompt_injection"` → INC-KJC1H3 8/8, then worker and gateway back on `http://airflow-prod:8080`.
 - operations.md "Dates to remember": on 2027-01-01 both Vertex models' prices double, so `MODEL_PRICE_*` changes too, not only `FALLBACK_MODEL_PRICE_*`.
 
+## 2026-10-19: production Airflow UI through Cloudflare
+
+- Route `airflow-prod.praponb.com` → `http://airflow-prod:8080` on tunnel `dashboard` (added by the owner 2026-10-18 16:56 Bangkok). It was reachable **without Access** until the owner created its Access application (AUD `14e1d63d…`, only the owner's email) on 2026-10-19; Airflow's own login guarded the data meanwhile (API 401). Now `/` redirects (302) to the Access login.
+- `PROD_AIRFLOW_PUBLIC_URL=https://airflow-prod.praponb.com` (logins and log links); production api-server, scheduler, DAG processor and triggerer recreated. The investigator still reads `http://airflow-prod:8080` inside Docker (viewer token 201).
+- The tunnel-side JWT check (route → Access → Protect with Access + AUD) isn't on yet for this route; the demo route has it.
+
