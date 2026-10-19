@@ -34,9 +34,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 
 | Group | Variables |
 |---|---|
-| Model | `MOONSHOT_API_KEY`, `MOONSHOT_BASE_URL` (international), `OPENCLAW_MODEL=moonshot/kimi-k3`, `MODEL_PRICE_INPUT_PER_MTOK=3.00`, `MODEL_PRICE_OUTPUT_PER_MTOK=15.00`, `MODEL_PRICE_CACHE_READ_PER_MTOK=0.30` (official Kimi K3 prices) |
-| Model on Vertex AI (since 2026-10-18) | `OPENCLAW_MODEL=google-vertex/gemini-3.7-flash`, `OPENCLAW_FALLBACK_MODEL=google-vertex/gemini-3.6-flash`, `GOOGLE_APPLICATION_CREDENTIALS=/run/vertex/openclaw-vertex.json` (key in `demo/.state/vertex/`, mode 600), `GOOGLE_CLOUD_PROJECT=gen-lang-client-0143309127`, `GOOGLE_CLOUD_LOCATION=eu` (EU multi-region, the owner's choice; Gemini 3.x is not in `asia-southeast1`, see Pitfalls); prices 0.75 / 3.75 / 0.075. The previous Kimi and AI Studio lines are in `demo/.env.bak-vertex`. |
-| Backup model | `GEMINI_API_KEY` (Google AI Studio, billing on); `OPENCLAW_FALLBACK_MODEL` defaults to `google/gemini-3.8-flash`; `FALLBACK_MODEL_PRICE_INPUT_PER_MTOK=0.75`, `FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK=3.75`, `FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK=0.075` (paid tier through 2026-12-31; **double from 2027-01-01**: 1.50 / 7.50 / 0.15) |
+| Model | Vertex AI only since 2026-10-19 (Moonshot and the AI Studio fallback removed from the code; on Vertex since 2026-10-18): `OPENCLAW_MODEL=google-vertex/gemini-3.7-flash`, `OPENCLAW_FALLBACK_MODEL=google-vertex/gemini-3.6-flash` (both are the compose defaults), `GOOGLE_APPLICATION_CREDENTIALS=/run/vertex/openclaw-vertex.json` (key in `demo/.state/vertex/`, mode 600), `GOOGLE_CLOUD_PROJECT=gen-lang-client-0143309127`, `GOOGLE_CLOUD_LOCATION=eu` (EU multi-region, the owner's choice; Gemini 3.x is not in `asia-southeast1`, see Pitfalls). `MODEL_PRICE_*` and `FALLBACK_MODEL_PRICE_*` = 0.75 / 3.75 / 0.075 through 2026-12-31; **double from 2027-01-01**: 1.50 / 7.50 / 0.15. |
 | Alerts | `HEALTHCHECK_URL` (heartbeat check), `HEALTHCHECK_LINE_URL` (LINE check); Healthchecks.io ping URLs |
 | LINE | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`, `LINE_TARGET_ID` (a personal chat, `U…`) |
 | Airflow | `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_VIEWER_PASSWORD` (investigator, read-only), `AIRFLOW_TRIGGER_PASSWORD` (dashboard Run pipeline account), `AIRFLOW_UID=1000`, `AIRFLOW_BIND_ADDRESS`, `AIRFLOW_PUBLIC_URL=https://airflow.praponb.com` |
@@ -70,7 +68,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Resolve an incident | ✅ Resolved on the LINE card, or automatically when the DAG's next run succeeds (checked every 5 min). |
 | An alert email arrives | Heartbeat **down** with no ping: the worker or server is off (`ssh` in, `docker compose ps`). Heartbeat **down** after a `/fail`: the email shows the reason (gateway not ready, backup failed). **LINE** check down: the email shows the LINE error (expired token, quota used up); it goes up again with the next successful push, or use 🔔 Test LINE. |
 | Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |
-| Costs | Dashboard Costs card. About $0.06–0.10 per investigation at Kimi K3 prices; Databricks compute minutes this month; LINE messages against the quota. |
+| Costs | Dashboard Costs card. About $0.03 per investigation on Gemini 3.7 Flash (Vertex); Databricks compute minutes this month; LINE messages against the quota. |
 
 ## Scheduled jobs
 
@@ -92,7 +90,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 |---|---|---|
 | Error 1033 after the Access login | The hostname's route was on a tunnel with no running connector. | Put the route on tunnel `582a2422…`. |
 | Airflow tasks hang in "Pre Execute" | Tasks call the Execution API at `AIRFLOW__API__BASE_URL`; behind Cloudflare Access that returns a login redirect. | `AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://localhost:8080/execution/`. |
-| Gateway image build fails on plugin install | Unpinned `@openclaw/moonshot-provider` pulled a release needing a newer plugin API. | Pin official plugins to the gateway version (`OPENCLAW_PLUGIN_VERSION`, now 2026.10.2). |
+| Gateway image build fails on plugin install | An unpinned official plugin (`@openclaw/moonshot-provider`, removed 2026-10-19) pulled a release needing a newer plugin API. | Pin official plugins to the gateway version (`OPENCLAW_PLUGIN_VERSION`, now 2026.10.2). |
 | `run_after` has no `in_timezone` | Manual runs in Airflow 3 may have no logical date, and `run_after` is a plain datetime. | `+ macros.timedelta(hours=7)`. |
 | `airflow db clean` fails inside a DAG | Airflow 3 tasks can't reach the metadata DB. | `make airflow-db-clean` from cron. |
 | `llm_output` hook blocked | OpenClaw guards it for non-bundled plugins. | `plugins.entries.report-capture.hooks.allowConversationAccess: true`. |
@@ -114,7 +112,6 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Every service principal API call returned 403 "This API is disabled for users without …" | The new workspace's `users` group grants no entitlements. | Give the SP an entitlement. |
 | Investigator got 403 "does not have access to Databricks Workspace" for a failed run | `workspace-consume` covers job and run reads but not `jobs/runs/get-output` or the workspace API. | Reader gets `workspace-access`. Test SPs with the exact calls the tools make. |
 | Every investigation fails with "This model was not found" on Vertex; the worker sends only its fallback notice | Gemini 3.x Flash is not served in `asia-southeast1` (404 "Publisher model … was not found or your project does not have access to it"); it answers only on `global`, `us` and `eu` (checked 2026-10-18). | `GOOGLE_CLOUD_LOCATION=eu` (or `us`/`global`), then recreate the gateway. Probe a model first: `curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" https://aiplatform.eu.rep.googleapis.com/v1/projects/<project>/locations/eu/publishers/google/models/<model>:generateContent -d '{"contents":[{"role":"user","parts":[{"text":"ok"}]}]}'`. In zsh write `${m}:generateContent`: `$m:g…` is read as a modifier. |
-| Doctor at gateway start: "Unknown model: moonshot/kimi-k3" (2026.10.2) | Doctor's tool-schema check runs before the Moonshot catalog has loaded. | Harmless: `openclaw models list --provider moonshot` lists `kimi-k3` once started, and runs use it. |
 | Doctor at gateway start: "Remember across conversations is effectively enabled" (2026.10.2) | Unset `memory.search.rememberAcrossConversations` counts as on. | Set to `false` in `openclaw.json5`: each incident stands on its own evidence. |
 | `insufficient_evidence` live test "failed" although the report was right | The test DAG's diff (docstring, `kill -9 $$`) and the `eval__…` run id told the investigator the failure was intentional. | Neutral test DAG `finance_nightly_jobs`, the failing client installed outside the repository, `manual__` run ids; add and delete files in separate commits (a rename's patch shows the old code). |
 | Report wrote "insufficient evidence" under Hypothesis | The prompt didn't say that "what failed but not why" counts as undetermined. | `AGENTS.md` rule (prompt version `1f58cc72c93c`). |
@@ -154,7 +151,7 @@ Rollback: comment out `AIRFLOW_BASE_URL` (back to the demo Airflow) and recreate
 ## Before connecting real production data
 
 See [data-residency.md](data-residency.md):
-- Gemini API and Healthchecks.io terms checked 2026-10-17 (see data-residency.md): list Google as a processor with no fixed region. The Gemini key's project must keep billing on (free tier allows training).
+- Healthchecks.io terms checked 2026-10-17 (see data-residency.md). The AI Studio (Gemini API) fallback, which had no fixed region, was removed on 2026-10-19.
 - A written no-training agreement from Moonshot, or switch the model provider. Done 2026-10-18: Vertex AI in the EU multi-region (no-training terms); record the EU transfer (data-residency.md finding 7).
 - Record the Databricks region (compute and storage in Mumbai since 2026-10-17) as a cross-border transfer, or move it (Singapore workspace, or a Bangkok bucket as the catalog's managed location).
 - Send reports to a LINE group and add teammates to Access when others join.

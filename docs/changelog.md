@@ -157,3 +157,10 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - 11:09: the server came back after an outage from 09:32 (no clean shutdown logged); every container restarted by itself (`restart: unless-stopped`), worker, gateway, tunnel and production Airflow healthy.
 - 11:28: owner set their own production admin password (`PROD_AIRFLOW_ADMIN_PASSWORD`, `make prod-airflow-state`, api-server restart); `/auth/token` 201 for `admin` and `investigator`. operations.md runbook covers the production password now.
 - 11:40: owner asked that only their email can reach `airflow.praponb.com` and `airflow-prod.praponb.com`. Both login pages were also on the LAN (`192.168.1.49:8080` and `:8081`), past Access: `AIRFLOW_BIND_ADDRESS` and `PROD_AIRFLOW_BIND_ADDRESS` set to `127.0.0.1` in the server's `demo/.env`, demo Airflow and production api-server recreated. Checked: both LAN ports closed, both hostnames 302 to their Access apps, worker → `airflow-prod:8080` 200. The Access policies (one Allow rule, the owner's email) are checked by the owner in the Cloudflare dashboard.
+
+## 2026-10-19: Vertex AI is the only model provider (review follow-up)
+
+An outside review (Gemini) took Moonshot Kimi K3 for the primary model: the repo defaults still said so, and only the server's `demo/.env` switched production to Vertex. A fresh deploy, or a lost `.env` line, would have sent evidence to Moonshot.
+- Compose defaults: `google-vertex/gemini-3.7-flash`, backup `google-vertex/gemini-3.6-flash`, `GOOGLE_CLOUD_LOCATION=eu`. `MOONSHOT_*` and `GEMINI_API_KEY` removed from compose and `.env.example`.
+- Gateway image no longer installs `@openclaw/moonshot-provider` (also drops its Kimi `web_search` tool); `openclaw.json5` has no Moonshot plugin entry or provider block.
+- README model section, operations.md (model row, costs ~$0.03 per investigation), data-residency.md (findings 3 and 7, credentials) updated.

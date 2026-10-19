@@ -16,7 +16,7 @@ COPY --chown=node:node demo/.state/plugin/report-capture /opt/openclaw-plugins/r
 COPY --chown=node:node openclaw/workspace-investigator /opt/openclaw/workspace-investigator
 
 USER node
-# Official external plugins (LINE channel, Moonshot/Kimi K3 provider) plus the
+# Official external plugin (LINE channel; the Vertex provider is bundled) plus the
 # investigator + report-capture plugins. OpenClaw installs plugins next to the active config file
 # (<config dir>/extensions and <config dir>/npm), so install them with a throwaway
 # config in /opt/openclaw; the real config below lives in the same directory and
@@ -27,7 +27,6 @@ USER node
 ARG OPENCLAW_PLUGIN_VERSION=2026.10.2
 RUN echo '{}' > /opt/openclaw/build.json5 \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/line@${OPENCLAW_PLUGIN_VERSION} \
- && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install @openclaw/moonshot-provider@${OPENCLAW_PLUGIN_VERSION} \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install /opt/openclaw-plugins/pipeline-investigator --force --accept-capabilities \
  && OPENCLAW_CONFIG_PATH=/opt/openclaw/build.json5 openclaw plugins install /opt/openclaw-plugins/report-capture --force --accept-capabilities \
  && rm -f /opt/openclaw/build.json5*
