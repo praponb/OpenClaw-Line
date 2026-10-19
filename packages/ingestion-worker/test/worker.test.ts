@@ -268,3 +268,26 @@ describe("parseEvent", () => {
     expect(e.databricks_run_url).toBeUndefined();
   });
 });
+
+describe("graceful stop", () => {
+  it("idle() waits for a running investigation", async () => {
+    let finish!: () => void;
+    const dispatcher: Dispatcher = {
+      dispatch: () => new Promise((resolve) => (finish = () => resolve({ ok: true, detail: "test" }))),
+    };
+    const worker = createWorker(loadConfig(baseEnv), dispatcher, { log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } });
+    expect(await worker.idle(10)).toBe(true);
+
+    worker.aggregator.add(parseEvent({ dag_id: "d", task_id: "t", run_id: "r", try_number: 1 }));
+    const flushed = worker.aggregator.flushAll();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(worker.investigating()).toBe(1);
+    expect(await worker.idle(20)).toBe(false);
+
+    const waiting = worker.idle(5_000);
+    finish();
+    expect(await waiting).toBe(true);
+    expect(worker.investigating()).toBe(0);
+    await flushed;
+  });
+});

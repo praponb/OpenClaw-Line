@@ -48,6 +48,10 @@ export type Worker = {
   backup?: DailyBackup;
   /** What the heartbeat reports as broken; empty when healthy. */
   healthProblems: () => Promise<string[]>;
+  /** Investigations running now (the worker sends the feedback card when each one ends). */
+  investigating: () => number;
+  /** Resolves true once no investigation is running, or false after timeoutMs. */
+  idle: (timeoutMs: number) => Promise<boolean>;
 };
 
 export type WorkerDeps = {
@@ -78,6 +82,18 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
   line?.observePushes?.((err) => void (err ? alerts.lineFailed(`LINE push failed: ${err.message}`) : alerts.lineOk("LINE push ok")));
   const backup = store && fb && fb.backup.keep > 0 ? new DailyBackup(store, { ...fb.backup, now, log }) : undefined;
   let investigating = 0;
+  const idleWaiters: (() => void)[] = [];
+
+  function idle(timeoutMs: number): Promise<boolean> {
+    if (investigating === 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeoutMs);
+      idleWaiters.push(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
 
   async function healthProblems(): Promise<string[]> {
     const problems: string[] = [];
@@ -207,6 +223,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
         log.error(`[worker] ${key}: investigation crashed: ${sanitize(String(err))}`);
       } finally {
         investigating--;
+        if (investigating === 0) for (const wake of idleWaiters.splice(0)) wake();
       }
     },
   });
@@ -439,7 +456,7 @@ export function createWorker(cfg: WorkerConfig, dispatcher: Dispatcher, deps: Wo
 
   const resolutionWatcher = store && airflow ? new ResolutionWatcher(store, airflow, { now, log }) : undefined;
 
-  return { server, publicServer, dashboardServer, ingestServer, aggregator, investigate, store, resolutionWatcher, alerts, backup, healthProblems };
+  return { server, publicServer, dashboardServer, ingestServer, aggregator, investigate, store, resolutionWatcher, alerts, backup, healthProblems, investigating: () => investigating, idle };
 }
 
 function retryKey(seed: string): string {

@@ -25,6 +25,14 @@ describe("sanitize", () => {
     ["thai mobile, plain", "phone:0912345678,", "[REDACTED:thai_phone]", "0912345678"],
     ["thai international", "contact +66 81 234 5678", "[REDACTED:thai_phone]", "+66 81 234 5678"],
     ["bangkok landline", "office 02-123-4567", "[REDACTED:thai_phone]", "02-123-4567"],
+    ["unlabelled random key", "init client Zk8qN3vR7pLm2XtYb9WcJ4hF6sDg1AeU failed", "[REDACTED:high_entropy]", "Zk8qN3vR7pLm2XtYb9WcJ4hF6sDg1AeU"],
+    ["google-style api key", "url ?key=AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY&x=1", "[REDACTED:", "AIzaSyD-9tSrke72PouQMnMX"],
+    ["aws secret in a list", "creds ['wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY']", "[REDACTED:high_entropy]", "wJalrXUtnFEMI"],
+    ["thai bank account, dashed", "transfer to 123-4-56789-0 failed", "[REDACTED:thai_bank_account]", "123-4-56789-0"],
+    ["thai bank account after keyword", "bank_account=0812345678 rejected", "account=[REDACTED:thai_bank_account]", "0812345678"],
+    ["thai bank account, thai keyword", "เลขที่บัญชี 1234567890 ไม่ถูกต้อง", "บัญชี [REDACTED:thai_bank_account]", "1234567890"],
+    ["thai name with surname", "ลูกค้า นายสมชาย ใจดี ชำระเงินไม่สำเร็จ", "[REDACTED:thai_name]", "สมชาย"],
+    ["thai name, miss", "ผู้รับ นางสาวสมหญิง รักไทย", "[REDACTED:thai_name]", "สมหญิง"],
   ])("redacts %s", (_name, input, expected, secret) => {
     const out = sanitize(input);
     expect(out).toContain(expected);
@@ -40,6 +48,16 @@ describe("sanitize", () => {
     // 907227724233005, 794488822565591 and 205995526214147 pass Luhn: real Databricks run ids that were masked before.
     const text = "run 907227724233005 run 794488822565591 run 205995526214147 job 954973835355130 amount 33800 id 1103700123459 evt_20261011_c00012 ch_20261011_00081 v2.1.296";
     expect(sanitize(text)).toBe(text); // 1103700123459 has a wrong check digit
+  });
+
+  it("keeps long identifiers, SHAs, UUIDs and timestamps", () => {
+    const text = [
+      "table fct_daily_revenue_v2_Backfill2026Q4 test_recognizes_a_reimported_Notifier1",
+      "commit dc6b2e2b9f4e1a7c3d5b8e0f2a4c6e8b0d2f4a6c container 3f9a1c2b7d8e4f6a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a",
+      "uuid 550E8400-E29B-41D4-A716-446655440000 ts 1760846400 1760846400123 run 907227724233005",
+      "AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE dags/stripe_ingest/Extract_stripe_v2 com.example.Foo123BarServiceImplTest",
+    ].join("\n");
+    expect(sanitize(text)).toBe(text);
   });
 
   it("does not redact non-Luhn digit runs such as ids", () => {
