@@ -145,5 +145,5 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 
 - Route `airflow-prod.praponb.com` → `http://airflow-prod:8080` on tunnel `dashboard` (added by the owner 2026-10-18 16:56 Bangkok). It was reachable **without Access** until the owner created its Access application (AUD `14e1d63d…`, only the owner's email) on 2026-10-19; Airflow's own login guarded the data meanwhile (API 401). Now `/` redirects (302) to the Access login.
 - `PROD_AIRFLOW_PUBLIC_URL=https://airflow-prod.praponb.com` (logins and log links); production api-server, scheduler, DAG processor and triggerer recreated. The investigator still reads `http://airflow-prod:8080` inside Docker (viewer token 201).
-- The tunnel-side JWT check (route → Access → Protect with Access + AUD) isn't on yet for this route; the demo route has it.
+- 09:08: tunnel-side JWT check on for the route too (Protect with Access, AUD `14e1d63d…`, team `praponb`; tunnel log "Updated to new configuration"), as for the demo route. A forged `CF_Authorization` cookie still gets the 302 to the Access login.
 
