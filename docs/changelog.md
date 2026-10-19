@@ -152,3 +152,8 @@ The first workspace (`8259562386951628.8`) was deleted, and the dashboard showed
 - `report.js --summary [--line]` and `make daily-summary [DAYS=1]`: short summary of the last 24 h (incidents, delivered/failed, triage median and p90, votes, model cost) and the incidents that need a look (not delivered, 👎/⚠️, claims not found in the evidence). 2 tests.
 - Server: worker redeployed; first summary sent to LINE; crontab `0 8 * * *` (Bangkok) installed.
 
+## 2026-10-19: Airflow UIs only through Cloudflare Access
+
+- 11:09: the server came back after an outage from 09:32 (no clean shutdown logged); every container restarted by itself (`restart: unless-stopped`), worker, gateway, tunnel and production Airflow healthy.
+- 11:28: owner set their own production admin password (`PROD_AIRFLOW_ADMIN_PASSWORD`, `make prod-airflow-state`, api-server restart); `/auth/token` 201 for `admin` and `investigator`. operations.md runbook covers the production password now.
+- 11:40: owner asked that only their email can reach `airflow.praponb.com` and `airflow-prod.praponb.com`. Both login pages were also on the LAN (`192.168.1.49:8080` and `:8081`), past Access: `AIRFLOW_BIND_ADDRESS` and `PROD_AIRFLOW_BIND_ADDRESS` set to `127.0.0.1` in the server's `demo/.env`, demo Airflow and production api-server recreated. Checked: both LAN ports closed, both hostnames 302 to their Access apps, worker → `airflow-prod:8080` 200. The Access policies (one Allow rule, the owner's email) are checked by the owner in the Cloudflare dashboard.
