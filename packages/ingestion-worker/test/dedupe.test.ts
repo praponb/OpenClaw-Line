@@ -39,6 +39,20 @@ describe("FailureAggregator", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(onFlush).toHaveBeenCalledTimes(2);
   });
+
+  it("after stop() saves new callbacks but starts no investigation (worker shutting down)", async () => {
+    const onFlush = vi.fn();
+    const saved: string[] = [];
+    const store = { savePendingEvent: (k: string) => saved.push(k), markFlushed: vi.fn(), pruneFlushed: vi.fn(), loadDedupeState: () => ({ pending: new Map(), flushed: new Map() }) };
+    const agg = new FailureAggregator({ windowMs: 1_000, ttlMs: 10_000, onFlush, store });
+    agg.add(ev("a", "r1"));
+    agg.stop();
+    expect(agg.add(ev("b", "r2"))).toBe("buffered");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(onFlush).not.toHaveBeenCalled();
+    expect(saved).toEqual(["daily_revenue_pipeline:r1", "daily_revenue_pipeline:r2"]);
+    expect(agg.pendingCount).toBe(2);
+  });
 });
 
 describe("selectRootTask", () => {
