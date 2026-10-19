@@ -72,7 +72,7 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | Restore the incident log | Stop the worker, copy `demo/.state/feedback/backups/feedback-<day>.db` over `demo/.state/feedback/feedback.db` (delete `feedback.db-wal` and `feedback.db-shm`), start the worker. |
 | Costs | Dashboard Costs card. About $0.06–0.10 per investigation at Kimi K3 prices; Databricks compute minutes this month; LINE messages against the quota. |
 
-## Scheduled jobs (retention)
+## Scheduled jobs
 
 | When | What |
 |---|---|
@@ -80,6 +80,9 @@ make lakehouse-deploy   # Databricks job, from the Mac
 | 03:15 daily | Server crontab (user `prapon`): `make -s airflow-db-clean` (Airflow metadata older than 90 days); output in `demo/.state/airflow-db-clean.log`. The line sets `PATH=/usr/local/bin:…` because docker lives there. |
 | Every worker day | Report text older than 180 days removed (`REPORT_RETENTION_DAYS`). |
 | Once per Bangkok day (checked hourly and at start) | Worker copies `feedback.db` to `demo/.state/feedback/backups/feedback-YYYY-MM-DD.db`; keeps 14. |
+| 08:00 daily | Server crontab: `make -s daily-summary` pushes a short summary of the last 24 h to LINE (incidents, delivered/failed, triage time, votes, model cost, and the incidents that need a look: not delivered, 👎/⚠️, claims not found in the evidence). One push a day (about 30 of the 300 free monthly pushes). Output in `demo/.state/daily-summary.log`. Preview without sending: `docker compose … exec -T ingestion-worker node dist/report.js --days 1 --summary`. |
+| 03:25 daily | Server crontab: `make -s prod-airflow-db-clean` (production Airflow metadata older than 90 days). |
+| Every 10 min | Server crontab: `git -C ~/prod-dags pull -q --ff-only` (production DAGs from `main`). |
 | Every 5 min | Worker heartbeat to Healthchecks.io (gateway `/readyz` and last backup checked). |
 | After every Databricks run | Job task `housekeeping`: landing folders older than 90 days, `VACUUM` on bronze, silver and gold (about 70 s). |
 

@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { REASONS, decodePostback, encodePostback, fallbackMessage, feedbackCard, reasonPrompt } from "../src/feedback.js";
-import { quantile, renderFeedbackReport } from "../src/feedbackReport.js";
+import { quantile, renderDailySummary, renderFeedbackReport } from "../src/feedbackReport.js";
 import { FeedbackStore, voterId } from "../src/feedbackStore.js";
 import { INCIDENT_REF_RE, incidentRef } from "../src/incidentRef.js";
 import { verifyLineSignature } from "../src/line.js";
@@ -140,5 +140,23 @@ describe("FeedbackStore", () => {
     expect(text).toContain("--- INC-AAAAAA ⚠️ Misleading - Made-up fact");
     expect(text).toContain("🚨 Incident Summary: d / t");
     expect(text).toContain("(median / p90): 60s / 60s");
+  });
+
+  it("daily summary lists what needs a look", () => {
+    const store = seeded();
+    store.recordCompletion("INC-AAAAAA", { status: "ok", delivered: true }, 70_000);
+    store.recordReport("INC-AAAAAA", { text: "🚨 report\nRef: INC-AAAAAA", sentAt: 61_000, promptVersion: "v1" });
+    store.recordRating("INC-AAAAAA", "u:1", "down", 1);
+    store.recordReason("INC-AAAAAA", "u:1", "root_cause", 2);
+    const text = renderDailySummary(store.incidentsSince(0), store.feedbackSince(0), { days: 1, costUsd: 0.034 });
+    expect(text).toContain("⚠️ 1 item(s) need a look");
+    expect(text).toContain("Incidents: 1 (delivered 1, failed 0)");
+    expect(text).toContain("Feedback: 👍 0 / 👎 1 / ⚠️ 0 (0 without a vote)");
+    expect(text).toContain("Model cost: $0.03");
+    expect(text).toMatch(/• INC-AAAAAA .+: 👎/);
+  });
+
+  it("daily summary says so when nothing happened", () => {
+    expect(renderDailySummary([], [], { days: 1 })).toBe("☀️ Investigator summary, last 24 h\n✅ No incidents.");
   });
 });

@@ -64,6 +64,66 @@ export function renderFeedbackReport(incidents: IncidentRow[], feedback: Feedbac
   return out.join("\n");
 }
 
+/**
+ * Short daily summary for LINE (`report.js --summary --line`, server crontab): the
+ * numbers plus the incidents that need a look (not delivered, 👎/⚠️, unverified claims).
+ */
+export function renderDailySummary(
+  incidents: IncidentRow[],
+  feedback: FeedbackRow[],
+  opts: { days: number; costUsd?: number | null; maxItems?: number },
+): string {
+  const maxItems = opts.maxItems ?? 8;
+  const period = opts.days === 1 ? "last 24 h" : `last ${opts.days} days`;
+  const out = [`☀️ Investigator summary, ${period}`];
+  if (!incidents.length) {
+    out.push("✅ No incidents.");
+    return out.join("\n");
+  }
+
+  const byRef = new Map(incidents.map((i) => [i.ref, i]));
+  const label = (ref: string) => {
+    const i = byRef.get(ref);
+    return i ? `${ref} ${i.dag_id} / ${i.task_id}` : ref;
+  };
+  const items: string[] = [];
+  for (const i of incidents) {
+    if (i.completed_at && i.delivered !== 1) items.push(`• ${label(i.ref)}: report not delivered (${i.status ?? "unknown status"})`);
+  }
+  for (const f of feedback) {
+    if (f.rating === "down" || f.rating === "misleading" || (!f.rating && f.reason)) {
+      items.push(`• ${label(f.ref)}: ${f.rating ? RATINGS[f.rating] : "reason only"}${f.reason ? ` - ${REASONS[f.reason]}` : ""}`);
+    }
+  }
+  for (const i of incidents) {
+    if (i.ungrounded && i.ungrounded !== "[]") items.push(`• ${label(i.ref)}: not found in the evidence: ${(JSON.parse(i.ungrounded) as string[]).join("; ")}`);
+  }
+
+  const delivered = incidents.filter((i) => i.delivered === 1);
+  const triage = delivered
+    .map((i) => (i.first_seen_at && (i.report_sent_at ?? i.completed_at) ? (i.report_sent_at ?? i.completed_at)! - i.first_seen_at : undefined))
+    .filter((v): v is number => v !== undefined)
+    .sort((a, b) => a - b);
+  const votes = { up: 0, down: 0, misleading: 0 };
+  for (const f of feedback) if (f.rating) votes[f.rating]++;
+  const voted = new Set(feedback.filter((f) => byRef.has(f.ref)).map((f) => f.ref)).size;
+
+  out.push(
+    items.length ? `⚠️ ${items.length} item(s) need a look` : "✅ Nothing needs a look",
+    "",
+    `Incidents: ${incidents.length} (delivered ${delivered.length}, failed ${incidents.filter((i) => i.completed_at && i.delivered !== 1).length})`,
+    `Triage median / p90: ${fmtDuration(quantile(triage, 0.5))} / ${fmtDuration(quantile(triage, 0.9))}`,
+    `Feedback: 👍 ${votes.up} / 👎 ${votes.down} / ⚠️ ${votes.misleading} (${incidents.length - voted} without a vote)`,
+  );
+  if (opts.costUsd != null) out.push(`Model cost: $${opts.costUsd.toFixed(2)}`);
+  if (items.length) {
+    out.push("", "Needs a look:", ...items.slice(0, maxItems));
+    if (items.length > maxItems) out.push(`• … and ${items.length - maxItems} more`);
+  }
+  out.push("", "Details: make feedback-report on the server, or the dashboard.");
+  return out.join("\n");
+}
+
 /** Linear-interpolation quantile of an ascending list (the median of an even count is the mean of the middle two). */
 export function quantile(sorted: number[], p: number): number | undefined {
   if (!sorted.length) return undefined;
