@@ -190,3 +190,7 @@ An outside review (Gemini) took Moonshot Kimi K3 for the primary model: the repo
 - `agents.entries.pipeline-investigator.thinkingDefault: "low"` (unset meant the provider default, medium). Gateway log: `agent model: google-vertex/gemini-3.8-flash (thinking=low, fast=off)`.
 - 17:40–17:57: `make eval-live` 30/30, no WARN (INC-7C8BRN, INC-P9GNBM, INC-A354JS, INC-8DBAGF). Output 0.7–1.2k tokens per investigation instead of 10–15k; about $0.017 each instead of $0.06–0.07; `insufficient_evidence` and `cascade` 32–33 s instead of about 2 min.
 - `prompt_injection` (118 s) and `huge_log` (255 s) each had a first 3.8 call with almost no output, then a 40 s–3 min gap before the call that wrote the report. Likely retries inside OpenClaw; not visible because the test script recreates the gateway at the end and its logs go with it.
+
+## 2026-10-21: live-test logs are kept
+
+- `demo/with_demo_airflow.sh` saves the gateway and worker logs to `demo/.state/eval-live-logs/<date-time>-<service>.log` (mode 600) before it puts them back on production Airflow, which recreates both containers and drops their logs. Keeps the last 10 runs. A failed save doesn't stop the restore. Checked on the server with `demo/with_demo_airflow.sh true` (no model calls): both files written, worker back on `airflow-prod:8080`.
