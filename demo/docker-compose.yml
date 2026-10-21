@@ -9,8 +9,8 @@ x-openclaw-env: &openclaw-env
   # Model: Gemini on Vertex AI (Google Cloud terms: no training on the evidence).
   # Backup model when the primary fails (openclaw/openclaw.json5); same provider and
   # credentials, so a credential problem fails both and the worker sends its notice.
-  OPENCLAW_MODEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.7-flash}
-  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.6-flash}
+  OPENCLAW_MODEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.8-flash}
+  OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.7-flash}
   # Service-account key from demo/.state/vertex (mounted read-only at /run/vertex) and
   # project. Gemini 3.x Flash is served on global, us and eu only; eu = EU multi-region.
   GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
@@ -127,7 +127,7 @@ services:
       FEEDBACK_SIGNING_KEY: ${FEEDBACK_SIGNING_KEY:-}
       FEEDBACK_USER_SALT: ${FEEDBACK_USER_SALT:-}
       # Label only (stored per incident); not sent to the gateway as a model override.
-      OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.7-flash}
+      OPENCLAW_MODEL_LABEL: ${OPENCLAW_MODEL:-google-vertex/gemini-3.8-flash}
       # Public dashboard (dashboard.<domain> via the named tunnel) behind Cloudflare
       # Access. The listener only starts when all three CF/allow-list values are set.
       DASHBOARD_PORT: "8092"
@@ -148,7 +148,7 @@ services:
       MODEL_PRICE_OUTPUT_PER_MTOK: ${MODEL_PRICE_OUTPUT_PER_MTOK:-}
       MODEL_PRICE_CACHE_READ_PER_MTOK: ${MODEL_PRICE_CACHE_READ_PER_MTOK:-}
       # Calls answered by the fallback model are priced with these.
-      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.6-flash}
+      OPENCLAW_FALLBACK_MODEL: ${OPENCLAW_FALLBACK_MODEL:-google-vertex/gemini-3.7-flash}
       FALLBACK_MODEL_PRICE_INPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_INPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK: ${FALLBACK_MODEL_PRICE_OUTPUT_PER_MTOK:-}
       FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK: ${FALLBACK_MODEL_PRICE_CACHE_READ_PER_MTOK:-}

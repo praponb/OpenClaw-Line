@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@openclaw-line/shared": "0.1.0",
-    "openclaw": "2026.10.2"
+    "openclaw": "2026.10.4"
   },
   "openclaw": {
     "extensions": [

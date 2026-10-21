@@ -103,8 +103,8 @@
         // (outage, rate limit, auth error) after its own retries. Agent entries are
         // strict unless they list their own fallbacks. Same Vertex credentials.
         model: {
-          primary: "${OPENCLAW_MODEL}", // google-vertex/gemini-3.7-flash
-          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google-vertex/gemini-3.6-flash
+          primary: "${OPENCLAW_MODEL}", // google-vertex/gemini-3.8-flash
+          fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google-vertex/gemini-3.7-flash
         },
         skills: [],
         // Read-only enforcement at the platform level: the investigator only

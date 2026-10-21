@@ -1,6 +1,6 @@
 # OpenClaw Pipeline Incident Investigator (LINE)
 
-A read-only incident triage agent for data pipelines, built on [OpenClaw](https://docs.openclaw.ai) and powered by **Gemini 3.7 Flash on Vertex AI** (`google-vertex/gemini-3.7-flash`, EU multi-region). When an Airflow task fails, the investigator does two things:
+A read-only incident triage agent for data pipelines, built on [OpenClaw](https://docs.openclaw.ai) and powered by **Gemini 3.8 Flash on Vertex AI** (`google-vertex/gemini-3.8-flash`, EU multi-region). When an Airflow task fails, the investigator does two things:
 
 - **Gathers evidence:** task logs, Databricks run errors, recent git diffs and dbt lineage.
 - **Posts a report to LINE:** facts are kept separate from hypotheses, the blast radius is listed, and there are at most 3 next steps.
@@ -84,10 +84,10 @@ What happens in the demo:
 4. The lineage lookup should list `fct_daily_revenue` (SLA 06:00) and `finance_reconciliation`, plus the "Executive Daily KPI (Looker)" and "Daily Net Inflow Alert" exposures.
 
 ### Model: Gemini on Vertex AI
-- The model is `google-vertex/gemini-3.7-flash`, served by OpenClaw's bundled `google-vertex` provider (no extra plugin). Google Cloud's Service Terms: evidence is not used to train or fine-tune models.
+- The model is `google-vertex/gemini-3.8-flash`, served by OpenClaw's bundled `google-vertex` provider (no extra plugin). Google Cloud's Service Terms: evidence is not used to train or fine-tune models.
 - Credentials: a service account with only `roles/aiplatform.user`. Its JSON key goes in `demo/.state/vertex/` (mode 600, mounted read-only at `/run/vertex`); set `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`.
 - Location: Gemini 3.x Flash is served on `global`, `us` and `eu` only (not `asia-southeast1`). The default `eu` is the EU multi-region, where Google commits to in-region ML processing. See [docs/data-residency.md](docs/data-residency.md).
-- **Backup model:** when the primary fails (outage, rate limit) after OpenClaw's own retries, the run continues on `OPENCLAW_FALLBACK_MODEL` (default `google-vertex/gemini-3.6-flash`; listed under the investigator's `model.fallbacks`). Same provider and credentials, so a credential problem fails both and the worker sends its fallback notice. The fallback applies to that run only. The dashboard shows which model(s) answered each incident, and prices fallback calls with `FALLBACK_MODEL_PRICE_*`.
+- **Backup model:** when the primary fails (outage, rate limit) after OpenClaw's own retries, the run continues on `OPENCLAW_FALLBACK_MODEL` (default `google-vertex/gemini-3.7-flash`; listed under the investigator's `model.fallbacks`). Same provider and credentials, so a credential problem fails both and the worker sends its fallback notice. The fallback applies to that run only. The dashboard shows which model(s) answered each incident, and prices fallback calls with `FALLBACK_MODEL_PRICE_*`.
 - To switch models, change `OPENCLAW_MODEL`. Another provider needs its plugin, a `models.providers` entry if it isn't bundled, and a check of its data terms before real data.
 - Prices (`MODEL_PRICE_*`, `FALLBACK_MODEL_PRICE_*`): 0.75 / 3.75 / 0.075 USD per million tokens (input / output / cached) through 2026-12-31, doubling from 2027-01-01.
 
