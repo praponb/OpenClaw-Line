@@ -38,7 +38,24 @@ restart() {
   echo "  worker reads $("${COMPOSE[@]}" exec -T ingestion-worker printenv AIRFLOW_BASE_URL)"
 }
 
+# The restore recreates both containers, and their logs go with them: keep the
+# run's logs (retries, rate limits, fallbacks) in demo/.state/eval-live-logs/,
+# the last 10 runs only.
+LOG_DIR=demo/.state/eval-live-logs
+save_logs() {
+  local stamp
+  stamp=$(date +%F-%H%M)
+  mkdir -p "$LOG_DIR"
+  for svc in openclaw-gateway ingestion-worker; do
+    (umask 077; "${COMPOSE[@]}" logs --no-color --timestamps "$svc" > "$LOG_DIR/$stamp-$svc.log" 2>&1 || true)
+  done
+  echo "  logs saved: $LOG_DIR/$stamp-*.log"
+  ls -1t "$LOG_DIR"/*.log | tail -n +21 | xargs rm -f
+}
+
 restore() {
+  wait_idle
+  save_logs || echo "  (could not save the logs)"
   echo "== restoring the worker and gateway to demo/.env"
   restart ""
 }
