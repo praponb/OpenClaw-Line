@@ -8,3 +8,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 .databricks/
+.DS_Store
+feedback-gemini.docx
