@@ -106,6 +106,9 @@
           primary: "${OPENCLAW_MODEL}", // google-vertex/gemini-3.8-flash
           fallbacks: ["${OPENCLAW_FALLBACK_MODEL}"], // google-vertex/gemini-3.7-flash
         },
+        // Unset, Gemini 3.8 thinks at the provider default (medium): 10–15k output tokens
+        // and ~2 min per investigation. "low" applies to the backup model too.
+        thinkingDefault: "low",
         skills: [],
         // Read-only enforcement at the platform level: the investigator only
         // sees its four read-only plugin tools. Deny wins over allow.
